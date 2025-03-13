@@ -1,0 +1,115 @@
+Summary:
+This repository provides a Python-based HDF5 data management framework (based on numpy and hdf5) designed for scientific data. It offers a structured approach to organizing and manipulating large datasets, including:
+
+- Hierarchical Data Structure: Organises data into an efficient grouped structure.
+
+- Axis Management: Supports named axes with automatic reindexing, including the ability to lock axes to prevent unintended changes.
+
+- Dataset Types: Handles arbitrary dataset types and dimensionality with integrated axis management.
+
+- Generic Reader/Writer: Includes a generic reader/writer for mapping data to these concepts.
+
+- Memory-Efficient Access: Allows accessing specific parts of datasets without loading the entire dataset into memory.
+
+- Metadata Management: Stores additional metadata about datasets and axes for better data understanding.
+
+Scope:
+This framework is intended for researchers and scientists working with complex scientific data, aiming to simplify data organization, and improved data consistency.
+
+Example:
+/
+|- axes
+    |- time_vi_cadence
+        |- data (1D array)
+            |- axis_type (attribute: "time")
+    |- time_dump_cadence
+        |- data (1D array)
+            |- axis_type (attribute: "time")
+    |- kappa_bin_edges
+        |- data (1D array)
+            |- axis_type (attribute: "bin_edges")
+    |- b_bin_edges
+        |- data (1D array)
+            |- axis_type (attribute: "bin_edges")
+    |- rho_bin_edges
+        |- data (1D array)
+            |- axis_type (attribute: "bin_edges")
+    |- k_modes
+        |- data (1D array)
+            |- axis_type (attribute: "wavenumber")
+|- datasets
+    |- volume_integrated_values
+        |- mach_number
+            |- data (1D array)
+                |- axis_0_tag (attribute: "/axes/time_vi_cadence")
+        |- kinetic_energy
+            |- data (1D array)
+                |- axis_0_tag (attribute: "/axes/time_vi_cadence")
+        |- magnetic_energy
+            |- data (1D array)
+                |- axis_0_tag (attribute: "/axes/time_vi_cadence")
+    |- spectra
+        |- kinetic_energy_spectra
+            |- data (2D array)
+                |- axis_0_tag (attribute: "/axes/time_dump_cadence")
+                |- axis_1_tag (attribute: "/axes/k_modes")
+        |- magnetic_energy_spectra
+            |- data (2D array)
+                |- axis_0_tag (attribute: "/axes/time_dump_cadence")
+                |- axis_1_tag (attribute: "/axes/k_modes")
+    |- pdfs
+        |- kappa_pdf_p16
+            |- data (1D array)
+                |- axis_0_tag (attribute: "/axes/kappa_bin_edges")
+        |- kappa_pdf_p50
+            |- data (1D array)
+                |- axis_0_tag (attribute: "/axes/kappa_bin_edges")
+        |- kappa_pdf_p84
+            |- data (1D array)
+                |- axis_0_tag (attribute: "/axes/kappa_bin_edges")
+        |- b_pdf_p16
+            |- data (1D array)
+                |- axis_0_tag (attribute: "/axes/b_bin_edges")
+        |- b_pdf_p50
+            |- data (1D array)
+                |- axis_0_tag (attribute: "/axes/b_bin_edges")
+        |- b_pdf_p84
+            |- data (1D array)
+                |- axis_0_tag (attribute: "/axes/b_bin_edges")
+        |- rho_pdf_p16
+            |- data (1D array)
+                |- axis_0_tag (attribute: "/axes/rho_bin_edges")
+        |- rho_pdf_p50
+            |- data (1D array)
+                |- axis_0_tag (attribute: "/axes/rho_bin_edges")
+        |- rho_pdf_p84
+            |- data (1D array)
+                |- axis_0_tag (attribute: "/axes/rho_bin_edges")
+    |- jpdfs
+        |- kappa_b_p16
+            |- data (2D array)
+                |- axis_0_tag (attribute: "/axes/kappa_bin_edges")
+                |- axis_1_tag (attribute: "/axes/b_bin_edges")
+        |- kappa_b_p50
+            |- data (2D array)
+                |- axis_0_tag (attribute: "/axes/kappa_bin_edges")
+                |- axis_1_tag (attribute: "/axes/b_bin_edges")
+        |- kappa_b_p84
+            |- data (2D array)
+                |- axis_0_tag (attribute: "/axes/kappa_bin_edges")
+                |- axis_1_tag (attribute: "/axes/b_bin_edges")
+        |- rho_b_p16
+            |- data (2D array)
+                |- axis_0_tag (attribute: "/axes/rho_bin_edges")
+                |- axis_1_tag (attribute: "/axes/b_bin_edges")
+        |- rho_b_p50
+            |- data (2D array)
+                |- axis_0_tag (attribute: "/axes/rho_bin_edges")
+                |- axis_1_tag (attribute: "/axes/b_bin_edges")
+        |- rho_b_p84
+            |- data (2D array)
+                |- axis_0_tag (attribute: "/axes/rho_bin_edges")
+                |- axis_1_tag (attribute: "/axes/b_bin_edges")
+|- metadata
+    |- experiment_description (attribute: "Example Experiment")
+    |- measurement_units (attribute: "SI Units")
