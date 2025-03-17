@@ -16,27 +16,33 @@ This repository provides a Python-based HDF5 data management framework (based on
 Scope:
 This framework is intended for researchers and scientists working with complex scientific data, aiming to simplify data organization, and improved data consistency.
 
-Example:
+Example hdf5:
 /
 |- axes
     |- time_vi_cadence
         |- data (1D array)
             |- axis_type (attribute: "time")
+            |- axis_units (attribute: "seconds")
     |- time_dump_cadence
         |- data (1D array)
             |- axis_type (attribute: "time")
+            |- axis_units (attribute: "seconds")
     |- kappa_bin_edges
         |- data (1D array)
             |- axis_type (attribute: "bin_edges")
+            |- axis_units (attribute: "unitless")
     |- b_bin_edges
         |- data (1D array)
             |- axis_type (attribute: "bin_edges")
+            |- axis_units (attribute: "Tesla")
     |- rho_bin_edges
         |- data (1D array)
             |- axis_type (attribute: "bin_edges")
+            |- axis_units (attribute: "kg/m^3")
     |- k_modes
         |- data (1D array)
             |- axis_type (attribute: "wavenumber")
+            |- axis_units (attribute: "1/m")
 |- datasets
     |- volume_integrated_values
         |- mach_number
@@ -113,3 +119,122 @@ Example:
 |- metadata
     |- experiment_description (attribute: "Example Experiment")
     |- measurement_units (attribute: "SI Units")
+
+Example dictionary:
+data_dict = {
+    'axes': {
+        'time_vi_cadence': {'data': [1, 2, 3], 'axis_type': 'time', 'axis_units': 'seconds'},
+        'time_dump_cadence': {'data': [4, 5, 6], 'axis_type': 'time', 'axis_units': 'seconds'},
+        'kappa_bin_edges': {'data': [7, 8, 9], 'axis_type': 'bin_edges', 'axis_units': 'unitless'},
+        'b_bin_edges': {'data': [10, 11, 12], 'axis_type': 'bin_edges', 'axis_units': 'Tesla'},
+        'rho_bin_edges': {'data': [13, 14, 15], 'axis_type': 'bin_edges', 'axis_units': 'kg/m^3'},
+        'k_modes': {'data': [16, 17, 18], 'axis_type': 'wavenumber', 'axis_units': '1/m'}
+    },
+    'datasets': {
+        'volume_integrated_values': {
+            'mach_number': {'data': [19, 20, 21], 'axis_0_tag': '/axes/time_vi_cadence'},
+            'kinetic_energy': {'data': [22, 23, 24], 'axis_0_tag': '/axes/time_vi_cadence'},
+            'magnetic_energy': {'data': [25, 26, 27], 'axis_0_tag': '/axes/time_vi_cadence'}
+        },
+        'spectra': {
+            'kinetic_energy_spectra': {'data': [[28, 29], [30, 31]], 'axis_0_tag': '/axes/time_dump_cadence', 'axis_1_tag': '/axes/k_modes'},
+            'magnetic_energy_spectra': {'data': [[32, 33], [34, 35]], 'axis_0_tag': '/axes/time_dump_cadence', 'axis_1_tag': '/axes/k_modes'}
+        },
+        'pdfs': {
+            'kappa_pdf_p16': {'data': [36, 37, 38], 'axis_0_tag': '/axes/kappa_bin_edges'},
+            'kappa_pdf_p50': {'data': [39, 40, 41], 'axis_0_tag': '/axes/kappa_bin_edges'},
+            'kappa_pdf_p84': {'data': [42, 43, 44], 'axis_0_tag': '/axes/kappa_bin_edges'},
+            'b_pdf_p16': {'data': [45, 46, 47], 'axis_0_tag': '/axes/b_bin_edges'},
+            'b_pdf_p50': {'data': [48, 49, 50], 'axis_0_tag': '/axes/b_bin_edges'},
+            'b_pdf_p84': {'data': [51, 52, 53], 'axis_0_tag': '/axes/b_bin_edges'},
+            'rho_pdf_p16': {'data': [54, 55, 56], 'axis_0_tag': '/axes/rho_bin_edges'},
+            'rho_pdf_p50': {'data': [57, 58, 59], 'axis_0_tag': '/axes/rho_bin_edges'},
+            'rho_pdf_p84': {'data': [60, 61, 62], 'axis_0_tag': '/axes/rho_bin_edges'}
+        },
+        'jpdfs': {
+            'kappa_b_p16': {'data': [[63, 64], [65, 66]], 'axis_0_tag': '/axes/kappa_bin_edges', 'axis_1_tag': '/axes/b_bin_edges'},
+            'kappa_b_p50': {'data': [[67, 68], [69, 70]], 'axis_0_tag': '/axes/kappa_bin_edges', 'axis_1_tag': '/axes/b_bin_edges'},
+            'kappa_b_p84': {'data': [[71, 72], [73, 74]], 'axis_0_tag': '/axes/kappa_bin_edges', 'axis_1_tag': '/axes/b_bin_edges'},
+            'rho_b_p16': {'data': [[75, 76], [77, 78]], 'axis_0_tag': '/axes/rho_bin_edges', 'axis_1_tag': '/axes/b_bin_edges'},
+            'rho_b_p50': {'data': [[79, 80], [81, 82]], 'axis_0_tag': '/axes/rho_bin_edges', 'axis_1_tag': '/axes/b_bin_edges'},
+            'rho_b_p84': {'data': [[83, 84], [85, 86]], 'axis_0_tag': '/axes/rho_bin_edges', 'axis_1_tag': '/axes/b_bin_edges'}
+        }
+    },
+    'metadata': {
+        'experiment_description': 'Example Experiment',
+        'measurement_units': 'SI Units'
+    }
+}
+
+Core Features
+  - Modular Design: Organize code into separate modules for axes management, dataset management, and HDF5 operations. This ensures that each module has a clear, focused responsibility.
+
+  - Axes Management:
+
+    - Define an abstract base class for Axis to handle different types of axes (all of them should be 1D).
+
+    - Implement specific axis classes (e.g., TimeAxis, BinEdgesAxis, WavenumberAxis).
+
+    - Use enums for axis types and units to ensure consistency and reduce errors.
+
+  - Dataset Management:
+
+    - Store datasets with associated axes.
+
+    - Support datasets of various dimensions (1D, 2D, etc.).
+
+    - Metadata Management: Store metadata attributes like experiment descriptions and measurement units.
+
+User Interface Features
+  - Simplified Data Addition: Allow users to add data with associated axes. Axes need to be created manually, and then are referenced when the data is added.
+
+  - Automatic Axis Creation: Automatically create axes if they don't exist when adding datasets. However, based on your edit, this might not be necessary if axes must be created manually.
+
+  - Note Unassociated Dimensions: Record if any data dimensions are not associated with axes, their axes tag should be a default value (e.g., nan, None, or something appropriate).
+
+Data Integrity Features
+  - Cull Unused Axes: Provide a method to remove axes not associated with any datasets.
+
+  - Check Consistency: Implement a method to verify that data dimensions associated with the same axes are consistent in length.
+
+HDF5 Operations
+  - Save to HDF5: Save data structures to HDF5 files, preserving axes and metadata.
+
+  - Load from HDF5:
+
+    - Load data from HDF5 files back into the data manager.
+
+    - Allow users to specify which datasets to load, so they don't have to load the entire data structure if unnecessary.
+
+    - Provide a method for users to retrieve a list of dataset and axis names stored in the HDF5 file.
+
+Error Handling and Validation
+  - Input Validation: Validate user input to prevent errors. This includes:
+
+    - Checking that axis types are valid (e.g., using enums).
+
+    - Ensuring dataset dimensions match the number of axes provided.
+
+    - Verifying that metadata attributes are correctly formatted.
+
+  - Error Messages: Provide clear error messages for invalid operations, such as:
+
+    - Attempting to add a dataset with mismatched axis and data dimensions.
+
+    - Trying to create an axis with an invalid type or unit.
+
+    - Loading a non-existent dataset from an HDF5 file.
+
+Testing and Documentation
+  - Testing Framework: Set up a testing framework to ensure new features don't break existing functionality. This should include tests for:
+
+    - Axis creation and management.
+
+    - Dataset addition and retrieval.
+
+    - Metadata handling.
+
+    - HDF5 operations (saving and loading).
+
+    - Error handling scenarios.
+
