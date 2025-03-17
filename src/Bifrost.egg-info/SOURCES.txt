@@ -1,0 +1,8 @@
+README.md
+setup.py
+src/Bifrost/__init__.py
+src/Bifrost/h5dm.py
+src/Bifrost.egg-info/PKG-INFO
+src/Bifrost.egg-info/SOURCES.txt
+src/Bifrost.egg-info/dependency_links.txt
+src/Bifrost.egg-info/top_level.txt
