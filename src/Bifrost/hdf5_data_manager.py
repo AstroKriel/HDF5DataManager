@@ -37,7 +37,11 @@ class HDF5DataManager:
       bool_allow_non_monotonic = False
     ):
     """Adds an axis to the manager, with optional overwrite and locking."""
-    status = {"success": False, "message": "", "needs_reindex": False}
+    status = {
+      "success": False,
+      "message": "",
+      "needs_reindex": False
+    }
     if not isinstance(axis_units, AxisUnits):
       status["message"] = f"Invalid axis unit: {axis_units}"
       return status

@@ -238,3 +238,87 @@ Testing and Documentation
 
     - Error handling scenarios.
 
+
+
+HDF5DataManager Functionality Report
+
+The HDF5DataManager class provides a comprehensive solution for managing scientific data using the HDF5 file format. Here's a detailed overview of its key features and functionalities:
+
+1. Data Structure
+
+- Axes: Stored in self.dict_axes as a nested dictionary: {axes_group: {axes_name: {data, units, locked}}}
+
+- Datasets: Stored in self.dict_datasets as a nested dictionary: {dataset_group: {dataset_name: {data, units, axes}}}
+
+- Metadata: Stored in self.dict_metadata as a simple dictionary
+
+2. Axis Management
+
+- Add/update axes with add_axis method
+
+- Support for overwriting or extending existing axes
+
+- Enforce monotonicity and handle locked axes
+
+- Track modified axes in self.set_axes_extended and self.set_axes_overwritten
+
+3. Dataset Management
+
+- Add datasets with add_data method
+
+- Support multi-dimensional datasets
+
+- Associate datasets with existing axes
+
+- Handle datasets without associated axes
+
+4. Metadata Management
+
+- Set and retrieve metadata using set_metadata method
+
+5. HDF5 File Operations
+
+- Save data structure to HDF5 file (save_to_hdf5)
+
+- Load complete data structure from HDF5 file (load_from_hdf5)
+
+- Load specific datasets or groups (load_specific_dataset)
+
+- Read file structure without loading all data (read_file_structure)
+
+6. Data Integrity
+
+- Cull unused axes before saving (cull_unused_axes)
+
+- Check consistency between dataset dimensions and associated axes (check_consistency)
+
+- Track axes needing reindexing (self.axes_needing_reindex)
+
+7. Error Handling
+
+- Return status dictionaries instead of raising exceptions
+
+- Provide clear error messages for invalid operations
+
+8. Axis-Dataset Relationship
+
+- Datasets reference axes by name
+
+- Axis groups organize related axes
+
+- Dataset dimensions must match the number of associated axes
+
+
+Implementation Notes:
+
+- Use numpy for numerical operations and data storage
+
+- Utilize h5py for HDF5 file interactions
+
+- Implement robust validation in add_axis and add_data methods
+
+- Ensure efficient partial loading of large datasets
+
+- Maintain clear separation between data structure and file operations
+
+This structure allows for flexible management of scientific data, supporting various dimensions and types while maintaining data integrity and efficient storage/retrieval operations.
