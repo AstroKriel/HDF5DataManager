@@ -1,403 +1,293 @@
-from enum import Enum
+import copy
+import unittest
 import numpy as np
-import h5py
+from enum import Enum
 
-class AxisType(Enum):
-  TIME = "time"
-  BIN_EDGES = "bin_edges"
-  K_MODES = "k_modes"
 
 class AxisUnits(Enum):
-  NOT_SPECIFIED = "not_specified"
-  DIMENSIONLESS = "dimensionless"
-  T_TURB = "t_turb"
-  K_TURB = "k_turb"
+    NOT_SPECIFIED = "not_specified"
+    DIMENSIONLESS = "dimensionless"
+    T_TURB = "t_turb"
+    K_TURB = "k_turb"
 
 class DatasetUnits(Enum):
-  NOT_SPECIFIED = "not_specified"
-  DIMENSIONLESS = "dimensionless"
+    NOT_SPECIFIED = "not_specified"
+    DIMENSIONLESS = "dimensionless"
+
+
+class AxisObject:
+    def __init__(self, group, name, values, units=AxisUnits.NOT_SPECIFIED, notes=""):
+        self.group  = group
+        self.name   = name
+        self.values = np.array(values)
+        self.units  = units
+        self.locked = False
+        self.notes  = notes
+
+    def add(self, values_in, bool_overwrite=False):
+        if self.locked: raise ValueError(f"Axis `/axes/{self.group}/{self.name}` is locked and cannot be modified.")
+        self.values = np.unique(np.concatenate((self.values, np.array(values_in))))
+
+
+class DatasetObject:
+    def __init__(self, group, name, values, list_axis_objs, units=DatasetUnits.NOT_SPECIFIED, notes=""):
+        self.group  = group
+        self.name   = name
+        self.data   = np.array(values)
+        self.units  = units
+        self.notes  = notes
+        self.locked = False
+        self.list_axis_objs_copy = copy.deepcopy(list_axis_objs)
+
+    def add(self, dataset_values_in, list_axis_values_in, list_axis_objs_updated, bool_overwrite=False):
+        if self.locked: raise ValueError(f"Dataset `/datasets/{self.group}/{self.name}` is locked and cannot be modified.")
+        self.reindex(list_axis_values_in, list_axis_objs_updated, dataset_values_in)
+
+    def reindex(self, list_axis_values_in, list_axis_objs_updated, dataset_values_in=None):
+        list_axis_values_old = [
+            np.array(obj_axis_old.values, copy=True)
+            for obj_axis_old in self.list_axis_objs_copy
+        ]
+        self.list_axis_objs_copy = copy.deepcopy(list_axis_objs_updated)
+        updated_dataset_shape = tuple(
+            len(obj_axis_updated.values)
+            for obj_axis_updated in self.list_axis_objs_copy
+        )
+        dataset_values_updated = np.full(updated_dataset_shape, np.nan)
+        dataset_indices_old = tuple(
+            np.searchsorted(obj_axis_updated.values, old_axis_values)
+            for obj_axis_updated, old_axis_values in zip(self.list_axis_objs_copy, list_axis_values_old)
+        )
+        dataset_values_updated[np.ix_(*dataset_indices_old)] = self.data
+        if dataset_values_in is not None:
+            dataset_indices_new = tuple(
+                np.searchsorted(obj_axis_updated.values, new_axis_values)
+                for obj_axis_updated, new_axis_values in zip(self.list_axis_objs_copy, list_axis_values_in)
+            )
+            dataset_values_updated[np.ix_(*dataset_indices_new)] = dataset_values_in
+        self.data = dataset_values_updated
+
 
 class HDF5DataManager:
-  def __init__(self):
-    self.dict_axes = {}  # {axis_group: {axis_name: {data, units, locked}}}
-    self.dict_datasets = {}  # {dataset_group: {dataset_name: {data, units, axes}}}
-    self.dict_metadata = {}
-    self.set_axis_extended = set()
-    self.set_axis_overwritten = set()
-    self.set_axis_needs_reindexing = set()
-    self.dict_lookup_axis_name2axis_group = {}  # {axis_name: axis_group}
-    self.dict_lookup_axis_name2dataset_name = {}  # {axis_name: [dataset_name]}
+    def __init__(self):
+        self.dict_axes = {}  # {group: {name: AxisObject}}
+        self.dict_datasets = {}  # {group: {name: DatasetObject}}
+        self.dict_axis_dependencies = {}  # { (axis_group, axis_name): [(dataset_group, dataset_name), ...] }
 
-  def add_axis(
-      self,
-      axis_group, axis_name, axis_values,
-      axis_units = AxisUnits.NOT_SPECIFIED,
-      bool_overwrite = False,
-      bool_locked = False,
-      bool_allow_non_monotonic = False
-    ):
-    """Adds an axis to the manager, with optional overwrite and locking."""
-    status = {
-      "success": False,
-      "message": "",
-      "needs_reindex": False
-    }
-    if not isinstance(axis_units, AxisUnits):
-      status["message"] = f"Invalid axis unit: {axis_units}"
-      return status
-    if axis_group not in self.dict_axes:
-      self.dict_axes[axis_group] = {}
-    if axis_name in self.dict_axes[axis_group]:
-      if self.dict_axes[axis_group][axis_name].get("locked", False):
-        status["message"] = f"Error: Cannot modify '{axis_group}/{axis_name}' because it is locked."
-        return status
-      axis_values_old = self.dict_axes[axis_group][axis_name]["data"]
-      if bool_overwrite:
-        if not self._validate_axis(axis_values, status, bool_allow_non_monotonic):
-          return status
-        self.dict_axes[axis_group][axis_name] = {
-          "data": axis_values,
-          "units": axis_units.value,
-          "locked": bool_locked
+    def add_data(self, dict_dataset, list_axis_dicts, bool_overwrite=False):
+        ## there needs to be alignment between dataset and axis:
+        ## 1. dict_dataset["values"].ndim == len(list_axis_dicts)
+        ## 2. dict_dataset["values"].shape[i] == len(list_axis_dicts[i]["values"])
+        ## the following properties should be gauranteed, at least with default values defined by the class that creates the dict
+        dataset_group  = dict_dataset.get("group")
+        dataset_name   = dict_dataset.get("name")
+        dataset_values = dict_dataset.get("values")
+        dataset_units  = dict_dataset.get("units")
+        list_axis_objs = [
+            self._create_or_update_axis(dict_axis, bool_overwrite)
+            for dict_axis in list_axis_dicts
+        ]
+        for obj_axis in list_axis_objs:
+            axis_id    = (obj_axis.group, obj_axis.name)
+            dataset_id = (dataset_group, dataset_name)
+            if axis_id not in self.dict_axis_dependencies:
+                self.dict_axis_dependencies[axis_id] = []
+            if dataset_id not in self.dict_axis_dependencies[axis_id]:
+                self.dict_axis_dependencies[axis_id].append(dataset_id)
+        if dataset_group not in self.dict_datasets:
+            self.dict_datasets[dataset_group] = {}
+        if dataset_name not in self.dict_datasets[dataset_group]:
+            ## create dataset for the first time
+            self.dict_datasets[dataset_group][dataset_name] = DatasetObject(
+                group  = dataset_group,
+                name   = dataset_name,
+                values = dataset_values,
+                units  = dataset_units,
+                list_axis_objs = list_axis_objs
+            )
+        else:
+            ## merge new data into the existing dataset
+            list_axis_values = [
+                dict_axis.get("values")
+                for dict_axis in list_axis_dicts
+            ]
+            self.dict_datasets[dataset_group][dataset_name].add(
+                dataset_values_in      = dataset_values,
+                list_axis_values_in    = list_axis_values, # input axes values that have not been merged with existing axes
+                list_axis_objs_updated = list_axis_objs,
+                bool_overwrite         = bool_overwrite
+            )
+        self._check_axis_dependency_and_reindex_where_necessary(list_axis_objs)
+
+    def _create_or_update_axis(self, dict_axis, bool_overwrite=False):
+        ## the following properties should be gauranteed, at least with default values defined by the class that creates the dict
+        axis_group  = dict_axis.get("group")
+        axis_name   = dict_axis.get("name")
+        axis_values = dict_axis.get("values")
+        axis_units  = dict_axis.get("units")
+        if axis_group not in self.dict_axes:
+            self.dict_axes[axis_group] = {}
+        if axis_name not in self.dict_axes[axis_group]:
+            self.dict_axes[axis_group][axis_name] = AxisObject(
+                group  = axis_group,
+                name   = axis_name,
+                values = axis_values,
+                units  = axis_units
+            )
+        else: self.dict_axes[axis_group][axis_name].add(axis_values, bool_overwrite)
+        return self.dict_axes[axis_group][axis_name]
+
+    def _check_axis_dependency_and_reindex_where_necessary(self, updated_axes):
+        for axis in updated_axes:
+            axis_key = (axis.group, axis.name)
+            if axis_key in self.dict_axis_dependencies:
+                for dataset_group, dataset_name in self.dict_axis_dependencies[axis_key]:
+                    dataset = self.dict_datasets[dataset_group][dataset_name]
+                    new_axis_values = [
+                        self.dict_axes[axis.group][axis.name].values
+                        for axis in dataset.list_axis_objs_copy
+                    ]
+                    dataset.reindex(
+                        list_axis_values_in    = new_axis_values,
+                        list_axis_objs_updated = dataset.list_axis_objs_copy,
+                        dataset_values_in      = dataset.data
+                    )
+
+    def lock_axis(self, axis_group, axis_name):
+        if axis_group in self.dict_axes and axis_name in self.dict_axes[axis_group]:
+            self.dict_axes[axis_group][axis_name].locked = True
+        else: raise ValueError(f"Axis `/axes/{axis_group}/{axis_name}` does not exist.")
+
+    def lock_dataset(self, dataset_group, dataset_name):
+        if dataset_group in self.dict_datasets and dataset_name in self.dict_datasets[dataset_group]:
+            self.dict_datasets[dataset_group][dataset_name].locked = True
+        else: raise ValueError(f"Dataset `/datasets/{dataset_group}/{dataset_name}` does not exist.")
+
+    def get_dataset(self, dataset_group, dataset_name):
+        return self.dict_datasets[dataset_group][dataset_name].data
+
+    def get_axis(self, axis_group, axis_name):
+        return self.dict_axes[axis_group][axis_name].values
+
+    @staticmethod
+    def create_dict_dataset(group, name, values, units=DatasetUnits.NOT_SPECIFIED, notes=""):
+        if not isinstance(group, str) or not group.strip():
+            raise ValueError("Dataset group must be a non-empty string.")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("Dataset name must be a non-empty string.")
+        if not isinstance(values, (list, np.ndarray)):
+            raise TypeError("Dataset values must be a list or numpy array.")
+        values = np.array(values)
+        if not isinstance(units, DatasetUnits):
+            raise TypeError(f"Invalid dataset unit: {units}. Must be an instance of DatasetUnits.")
+        if not isinstance(notes, str):
+            raise TypeError("Notes must be a string.")
+        return {
+            "group"  : group,
+            "name"   : name,
+            "values" : np.array(values),
+            "units"  : units,
+            "notes"  : notes
         }
-        self.set_axis_overwritten.add(f"{axis_group}/{axis_name}")
-        self.dict_lookup_axis_name2axis_group[axis_name] = axis_group  # Ensure lookup consistency
-        status["needs_reindex"] = True
-      else:
-        axis_values_new = np.unique(np.concatenate((axis_values_old, axis_values)))
-        if not self._validate_axis(axis_values_new, status, bool_allow_non_monotonic):
-          return status
-        self.dict_axes[axis_group][axis_name]["data"] = axis_values_new
-        if len(axis_values_new) != len(axis_values_old):
-          self.set_axis_extended.add(f"{axis_group}/{axis_name}")
-          status["needs_reindex"] = True
-    else:
-      if not self._validate_axis(axis_values, status, bool_allow_non_monotonic):
-        return status
-      self.dict_axes[axis_group][axis_name] = {
-        "data": axis_values,
-        "units": axis_units.value,
-        "locked": bool_locked
-      }
-      self.dict_lookup_axis_name2axis_group[axis_name] = axis_group
-    status["success"] = True
-    return status
 
-  def _validate_axis(self, values, status, bool_allow_non_monotonic=False):
-    """Checks axis validity: 1D, non-empty, monotonic (if required)."""
-    if values.ndim != 1:
-      status["message"] = "Axis must be a 1D array"
-      return False
-    if len(values) == 0:
-      status["message"] = "Axis cannot be empty"
-      return False
-    if not bool_allow_non_monotonic and not np.all(np.diff(values) >= 0):
-      status["message"] = "Axis values need to be monotonic"
-      return False
-    return True
+    @staticmethod
+    def create_dict_axis(group, name, values, units=AxisUnits.NOT_SPECIFIED, notes=""):
+        if not isinstance(group, str) or not group.strip():
+            raise ValueError("Axis group must be a non-empty string.")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("Axis name must be a non-empty string.")
+        if not isinstance(values, (list, np.ndarray)):
+            raise TypeError("Axis values must be a list or numpy array.")
+        values = np.array(values)
+        if values.ndim != 1:
+            raise ValueError("Axis values must be a 1D array.")
+        if not np.issubdtype(values.dtype, np.number):
+            raise TypeError("Axis values must be numeric (either integers or floats).")
+        if not isinstance(units, AxisUnits):
+            raise TypeError(f"Invalid axis unit: {units}. Must be an instance of AxisUnits.")
+        if not isinstance(notes, str):
+            raise TypeError("Notes must be a string.")
+        return {
+            "group"  : group,
+            "name"   : name,
+            "values" : values,
+            "units"  : units,
+            "notes"  : notes
+        }
 
-  def add_data(
-      self,
-      dataset_group, dataset_name, dataset_values, list_axis_dicts,
-      dataset_units = DatasetUnits.NOT_SPECIFIED,
-      bool_overwrite = False,
-      bool_locked = False
-    ):
-    """Adds a dataset and links it to its axes, with support for overwriting and locking."""
-    status = {
-      "success": False,
-      "message": "",
-      "needs_reindex": False
-    }
-    if not isinstance(dataset_units, DatasetUnits):
-      status["message"] = f"Invalid dataset unit: {dataset_units}"
-      return status
-    if len(list_axis_dicts) != dataset_values.ndim:
-      status["message"] = "Error: Dataset dimensions do not match the number of provided axes."
-      return status
-    list_missing_axes = [
-      f"{dict_axis['type']}/{dict_axis['name']}"
-      for dict_axis in list_axis_dicts
-      if (dict_axis["type"] not in self.dict_axes) or (dict_axis["name"] not in self.dict_axes[dict_axis["type"]])
-    ]
-    if list_missing_axes:
-      status["message"] = f"Error: The following axes are missing. Please add them first: {list_missing_axes}"
-      return status
-    if dataset_group not in self.dict_datasets:
-      self.dict_datasets[dataset_group] = {}
-    if dataset_name in self.dict_datasets[dataset_group]:
-      existing_dataset = self.dict_datasets[dataset_group][dataset_name]
-      if existing_dataset.get("locked", False):
-        status["message"] = f"Error: Dataset `{dataset_group}/{dataset_name}` is locked and cannot be modified."
-        return status
-      if bool_overwrite:
-        existing_dataset.update({
-          "data": dataset_values,
-          "units": dataset_units.value,
-          "axes": [dict_axis["name"] for dict_axis in list_axis_dicts]
-        })
-        status["message"] = f"Warning: Dataset `{dataset_group}/{dataset_name}` was overwritten."
-      else:
-        status["message"] = f"Error: Dataset `{dataset_group}/{dataset_name}` already exists. Use overwrite=True to replace it."
-        return status
-    else:
-      self.dict_datasets[dataset_group][dataset_name] = {
-        "data": dataset_values,
-        "units": dataset_units.value,
-        "axes": [dict_axis["name"] for dict_axis in list_axis_dicts],
-        "locked": bool_locked
-      }
-    for dict_axis in list_axis_dicts:
-      axis_name = dict_axis["name"]
-      self.dict_lookup_axis_name2dataset_name.setdefault(axis_name, []).append(dataset_name)
-    status["needs_reindex"] = any(dict_axis["name"] in self.set_axis_needs_reindexing for dict_axis in list_axis_dicts)
-    status["success"] = True
-    return status
+class TestHDF5DataManager(unittest.TestCase):
 
+    def setUp(self):
+        self.h5dmanager = HDF5DataManager()
 
-  def set_metadata(self, key, value):
-    """Stores metadata in the manager."""
-    self.dict_metadata[key] = value
+    # def test_create_dict_axis(self):
+    #     axis_values = np.arange(1000)
+    #     axis_dict = HDF5DataManager.create_dict_axis("axis_group", "axis_name", axis_values, AxisUnits.NOT_SPECIFIED, notes="Test axis")
+    #     self.assertEqual(axis_dict["group"], "axis_group")
+    #     self.assertEqual(axis_dict["name"], "axis_name")
+    #     np.testing.assert_array_equal(axis_dict["values"], axis_values)
+    #     self.assertEqual(axis_dict["units"], AxisUnits.NOT_SPECIFIED)
+    #     self.assertEqual(axis_dict["notes"], "Test axis")
 
-  def save_to_hdf5(self, file_path):
-    """Saves data to an HDF5 file."""
-    with h5py.File(file_path, "w") as fp:
-      self._save_axes(fp)
-      self._save_datasets(fp)
-      self._save_metadata(fp)
+    # def test_create_dict_dataset(self):
+    #     dataset_values = np.random.rand(1000) * 100
+    #     dataset_dict = HDF5DataManager.create_dict_dataset("dataset_group", "dataset_name", dataset_values, DatasetUnits.DIMENSIONLESS, notes="Test dataset")
+    #     self.assertEqual(dataset_dict["group"], "dataset_group")
+    #     self.assertEqual(dataset_dict["name"], "dataset_name")
+    #     np.testing.assert_array_equal(dataset_dict["values"], dataset_values)
+    #     self.assertEqual(dataset_dict["units"], DatasetUnits.DIMENSIONLESS)
+    #     self.assertEqual(dataset_dict["notes"], "Test dataset")
 
-  def _save_axes(self, fp):
-    """Writes axes to HDF5 under 'axes' group."""
-    axis_group = fp.create_group("axes")
-    for axis_group_name, axis_dict in self.dict_axes.items():
-      group = axis_group.create_group(axis_group_name)
-      for axis_name, axis_info in axis_dict.items():
-        axis_group = group.create_group(axis_name)
-        axis_group.create_dataset("data", data=axis_info["data"])
-        axis_group.attrs["units"] = axis_info["units"]
+    # def test_add_data(self):
+    #     length = 100
+    #     axis_values = np.arange(length)
+    #     dataset_values = np.random.rand(length)
+    #     axis_dict = HDF5DataManager.create_dict_axis("axis_group", "axis_name", axis_values, AxisUnits.NOT_SPECIFIED)
+    #     dataset_dict = HDF5DataManager.create_dict_dataset("dataset_group", "dataset_name", dataset_values, DatasetUnits.NOT_SPECIFIED)
+    #     self.h5dmanager.add_data(dataset_dict, [axis_dict], bool_overwrite=False)
+    #     stored_data = self.h5dmanager.get_dataset("dataset_group", "dataset_name")
+    #     np.testing.assert_array_equal(stored_data, dataset_values)
 
-  def _save_datasets(self, fp):
-    """Writes datasets to HDF5 under 'datasets' group."""
-    datasets_group = fp.create_group("datasets")
-    for dataset_group_name, dataset_dict in self.dict_datasets.items():
-      group = datasets_group.create_group(dataset_group_name)
-      for dataset_name, dataset_info in dataset_dict.items():
-        dataset_group = group.create_group(dataset_name)
-        dataset_group.create_dataset("data", data=dataset_info["data"])
-        dataset_group.attrs["units"] = dataset_info["units"]
-        for axis_index, axis_name in enumerate(dataset_info["axes"]):
-          axis_group_name = self.get_axis_group(axis_name) or "unknown_group"
-          dataset_group.attrs[f"axis_{axis_index}_tag"] = f"/axes/{axis_group_name}/{axis_name}"
+    # def test_extend_data(self):
+    #     length = 100
+    #     axis_values1 = np.arange(length)
+    #     dataset_values1 = np.random.rand(length)
+    #     axis_dict1 = HDF5DataManager.create_dict_axis("axis_group", "axis_name", axis_values1, AxisUnits.NOT_SPECIFIED)
+    #     dataset_dict1 = HDF5DataManager.create_dict_dataset("dataset_group", "dataset_name", dataset_values1, DatasetUnits.NOT_SPECIFIED)
+    #     self.h5dmanager.add_data(dataset_dict1, [axis_dict1], bool_overwrite=False)
+    #     axis_values2 = length + np.arange(length)
+    #     dataset_values2 = np.random.rand(length)
+    #     axis_dict2 = HDF5DataManager.create_dict_axis("axis_group", "axis_name", axis_values2, AxisUnits.NOT_SPECIFIED)
+    #     dataset_dict2 = HDF5DataManager.create_dict_dataset("dataset_group", "dataset_name", dataset_values2, DatasetUnits.NOT_SPECIFIED)
+    #     self.h5dmanager.add_data(dataset_dict2, [axis_dict2], bool_overwrite=False)
+    #     stored_data = self.h5dmanager.get_dataset("dataset_group", "dataset_name")
+    #     np.testing.assert_array_equal(stored_data, np.concatenate([dataset_values1, dataset_values2]))
 
-  def _save_metadata(self, fp):
-    """Writes metadata to HDF5 under 'metadata' group."""
-    metadata_group = fp.create_group("metadata")
-    for key, value in self.dict_metadata.items():
-      metadata_group.attrs[key] = value
+    def test_reindexing_shared_axis(self):
+        length = 100
+        axis_values1 = np.arange(length)
+        dataset_values1 = np.random.rand(length)
+        axis_dict1 = HDF5DataManager.create_dict_axis("axis_group", "axis_name", axis_values1, AxisUnits.NOT_SPECIFIED)
+        dataset_dict1 = HDF5DataManager.create_dict_dataset("dataset_group", "dataset_name", dataset_values1, DatasetUnits.NOT_SPECIFIED)
+        self.h5dmanager.add_data(dataset_dict1, [axis_dict1], bool_overwrite=False)
+        axis_values2 = length + np.arange(length)
+        dataset_values2 = np.random.rand(length)
+        axis_dict2 = HDF5DataManager.create_dict_axis("axis_group", "axis_name", axis_values2, AxisUnits.NOT_SPECIFIED)
+        dataset_dict2 = HDF5DataManager.create_dict_dataset("dataset_group", "dataset_name2", dataset_values2, DatasetUnits.NOT_SPECIFIED)
+        self.h5dmanager.add_data(dataset_dict2, [axis_dict2], bool_overwrite=False)
+        stored_data = self.h5dmanager.get_dataset("dataset_group", "dataset_name")
+        np.testing.assert_array_equal(stored_data, np.concatenate([dataset_values1, dataset_values2]))
 
-  def get_axis_group(self, axis_name):
-    """Retrieves the group of an axis (fast lookup)."""
-    return self.dict_lookup_axis_name2axis_group.get(axis_name, None)
+    # def test_add_2d_dataset(self):
+    #     length_rows = 50
+    #     length_cols = 100
+    #     dict_axis_rows = HDF5DataManager.create_dict_axis("axis_group", "axis_rows", np.arange(length_rows), AxisUnits.NOT_SPECIFIED)
+    #     dict_axis_cols = HDF5DataManager.create_dict_axis("axis_group", "axis_cols", np.arange(length_cols), AxisUnits.NOT_SPECIFIED)
+    #     dataset_values_in = np.random.rand(length_rows, length_cols)
+    #     dict_dataset = HDF5DataManager.create_dict_dataset("dataset_group", "dataset_name", dataset_values_in, DatasetUnits.NOT_SPECIFIED)
+    #     self.h5dmanager.add_data(dict_dataset, [dict_axis_rows, dict_axis_cols], bool_overwrite=False)
+    #     dataset_values_read = self.h5dmanager.get_dataset("dataset_group", "dataset_name")
+    #     np.testing.assert_array_equal(dataset_values_read, dataset_values_in)
 
-
-  # def reindex_data(self, axis_name):
-  #   status = {
-  #     "success": True,
-  #     "message": "",
-  #     "affected_datasets": []
-  #   }
-  #   try:
-  #     axis_group = self.get_axis_group(axis_name)
-  #     axis_len = len(self.dict_axes[axis_group][axis_name]["data"])
-  #     for dg_name, dg in self.dict_datasets.items():
-  #       for ds_name, ds in dg.items():
-  #         if axis_name in ds["axes"]:
-  #           idx = ds["axes"].index(axis_name)
-  #           if ds["data"].shape[idx] != axis_len:
-  #             status["affected_datasets"].append({
-  #               "group": dg_name,
-  #               "name": ds_name,
-  #               "expected": axis_len,
-  #               "actual": ds["data"].shape[idx]
-  #             })
-  #     if status["affected_datasets"]:
-  #       status["message"] = "Reindexing required"
-  #     else:
-  #       status["message"] = "No reindexing needed"
-  #     return status
-  #   except Exception as e:
-  #     status.update({"success": False, "message": str(e)})
-  #     return status
-
-  # def load_from_hdf5(self, file_path, bool_load_all_data : bool = False):
-  #   with h5py.File(file_path, "r") as fp:
-  #     self._load_axes(fp)
-  #     self._load_datasets(fp, bool_load_all_data)
-  #     self._load_metadata(fp)
-
-  # def _load_datasets(self, file_pointer, load_all_data=False):
-  #   datasets = file_pointer['datasets']
-  #   if load_all_data:
-  #     self.dict_datasets = { key: datasets[key][:] for key in datasets }  # Load all data if flag is set
-  #   else: self.dict_datasets = { key: datasets[key] for key in datasets }  # Just store the references
-  
-  # def read_file_structure(self, file_path):
-  #   with h5py.File(file_path, "r") as fp:
-  #     self._load_axes(fp)
-  #     self._load_dataset_structure(fp)
-  #     self._load_metadata(fp)
-
-  # def _load_axes(self, fp):
-  #   self.dict_axes = {}
-  #   for axis_group_name in fp["axes"]:
-  #     group = fp[f"axes/{axis_group_name}"]
-  #     self.dict_axes[axis_group_name] = {}
-  #     for axis_name in group:
-  #       axis_group = group[axis_name]
-  #       self.dict_axes[axis_group_name][axis_name] = {
-  #         "data": axis_group["data"][:],
-  #         "units": axis_group.attrs["units"]
-  #       }
-
-  # def _load_dataset_structure(self, fp):
-  #   self.dict_datasets = {}
-  #   for dataset_group_name in fp["datasets"]:
-  #     group = fp[f"datasets/{dataset_group_name}"]
-  #     self.dict_datasets[dataset_group_name] = {}
-  #     for dataset_name in group:
-  #       dataset_group = group[dataset_name]
-  #       self.dict_datasets[dataset_group_name][dataset_name] = {
-  #         "units": dataset_group.attrs["units"],
-  #         "axes": [],
-  #         "shape": dataset_group["data"].shape
-  #       }
-  #       # Get all axis tags and sort them by index
-  #       axis_tags = []
-  #       for attr_name in dataset_group.attrs:
-  #         if attr_name.startswith("axis_"):
-  #           parts = attr_name.split("_")
-  #           if len(parts) == 3 and parts[0] == "axis" and parts[2] == "tag":
-  #             axis_index = int(parts[1])
-  #             axis_tags.append((axis_index, dataset_group.attrs[attr_name]))
-  #       # Sort by axis index and extract names
-  #       axis_tags.sort(key=lambda x: x[0])
-  #       self.dict_datasets[dataset_group_name][dataset_name]["axes"] = [
-  #         tag.split("/")[-1] for _, tag in axis_tags
-  #       ]
-
-  # def load_specific_dataset(self, file_path, dataset_group, dataset_name):
-  #   """Load a specific dataset from the HDF5 file."""
-  #   with h5py.File(file_path, "r") as fp:
-  #     if dataset_group not in fp["datasets"] or dataset_name not in fp[f"datasets/{dataset_group}"]:
-  #       raise ValueError(f"Dataset {dataset_group}/{dataset_name} not found in the file.")
-  #     dataset_group = fp[f"datasets/{dataset_group}"]
-  #     dataset = dataset_group[dataset_name]
-  #     if dataset_group not in self.dict_datasets:
-  #       self.dict_datasets[dataset_group] = {}
-  #     self.dict_datasets[dataset_group][dataset_name] = {
-  #       "data": dataset["data"][:],
-  #       "units": dataset.attrs["units"],
-  #       "axes": [],
-  #       "shape": dataset["data"].shape
-  #     }
-  #     # Get all axis tags and sort them by index
-  #     axis_tags = []
-  #     for attr_name in dataset.attrs:
-  #       if attr_name.startswith("axis_"):
-  #         parts = attr_name.split("_")
-  #         if len(parts) == 3 and parts[0] == "axis" and parts[2] == "tag":
-  #           axis_index = int(parts[1])
-  #           axis_tags.append((axis_index, dataset.attrs[attr_name]))
-  #     # Sort by axis index and extract names
-  #     axis_tags.sort(key=lambda x: x[0])
-  #     self.dict_datasets[dataset_group][dataset_name]["axes"] = [
-  #       tag.split("/")[-1] for _, tag in axis_tags
-  #     ]
-
-  # def read_group(self, file_path, group_name):
-  #   group_data = {}
-  #   with h5py.File(file_path, "r") as fp:
-  #     if group_name not in fp:
-  #       raise ValueError(f"Group `{group_name}` not found in the file.")
-  #     group = fp[group_name]
-  #     for dataset_name, dataset in group.items():
-  #       group_data[dataset_name] = {
-  #         "data": dataset[:],
-  #         "attrs": dict(dataset.attrs)
-  #       }
-  #       if "axes" in dataset.attrs:
-  #         group_data[dataset_name]["axes"] = dataset.attrs["axes"]
-  #   return group_data
-
-  # def _load_metadata(self, fp):
-  #   self.dict_metadata = {}
-  #   metadata_group = fp["metadata"]
-  #   for key, value in metadata_group.attrs.items():
-  #     self.dict_metadata[key] = value
-
-  # def cull_unused_axes(self):
-  #   """
-  #   Cull axes that are not referenced by any dataset.
-  #   This should remove axes that are not used in any dataset.
-  #   """
-  #   used_axes = set()
-  #   for dataset in self.dict_datasets.values():
-  #     for axis_ref in dataset['axes']:
-  #       used_axes.add(axis_ref['name'])
-  #   axis_to_remove = [axis for axis in self.dict_axes if axis not in used_axes]
-  #   for axis in axis_to_remove:
-  #     del self.dict_axes[axis]
-  #   return axis_to_remove
-
-  # def check_consistency(self):
-  #   axis_lengths = {}
-  #   for dataset_group in self.dict_datasets.values():
-  #     for dataset in dataset_group.values():
-  #       for i, axis_name in enumerate(dataset["axes"]):
-  #         # Get the actual dimension length from the data shape
-  #         current_length = dataset["data"].shape[i]  # Remove len() here
-  #         if axis_name not in axis_lengths:
-  #           axis_lengths[axis_name] = current_length
-  #         elif axis_lengths[axis_name] != current_length:
-  #           raise ValueError(f"Inconsistent length for axis {axis_name}")
-
-  # def get_axis(self, axis_name):
-  #   for axis_group in self.dict_axes.values():
-  #     if axis_name in axis_group:
-  #       return axis_group[axis_name]
-  #   raise ValueError(f"Axis `{axis_name}` not found")
-
-  # def get_dataset(self, dataset_group, dataset_name):
-  #   if (dataset_group in self.dict_datasets) and (dataset_name in self.dict_datasets[dataset_group]):
-  #     return self.dict_datasets[dataset_group][dataset_name]
-  #   raise ValueError(f"Dataset `{dataset_group}/{dataset_name}` not found")
-
-  # def list_axes(self):
-  #   return [
-  #     (group, name)
-  #     for group, axes in self.dict_axes.items()
-  #     for name in axes
-  #   ]
-
-  # def list_datasets(self):
-  #   return [
-  #     (group, name)
-  #     for group, datasets in self.dict_datasets.items()
-  #     for name in datasets
-  #   ]
-
-  # def remove_dataset(self, dataset_group, dataset_name):
-  #   if (dataset_group in self.dict_datasets) and (dataset_name in self.dict_datasets[dataset_group]):
-  #     del self.dict_datasets[dataset_group][dataset_name]
-  #     if not self.dict_datasets[dataset_group]:
-  #       del self.dict_datasets[dataset_group]
-  #     return True
-  #   else: return False
-
-  # def remove_axis(self, axis_group, axis_name):
-  #   if axis_group in self.dict_axes and axis_name in self.dict_axes[axis_group]:
-  #     del self.dict_axes[axis_group][axis_name]
-  #     if not self.dict_axes[axis_group]:
-  #       del self.dict_axes[axis_group]
-  #     return True
-  #   else: return False
+if __name__ == '__main__':
+    unittest.main()

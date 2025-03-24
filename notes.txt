@@ -19,103 +19,100 @@ This framework is intended for researchers and scientists working with complex s
 Example hdf5:
 /
 |- axes
-    |- time_vi_cadence
-        |- data (1D array)
-            |- axis_type (attribute: "time")
-            |- axis_units (attribute: "seconds")
-    |- time_dump_cadence
-        |- data (1D array)
-            |- axis_type (attribute: "time")
-            |- axis_units (attribute: "seconds")
-    |- kappa_bin_edges
-        |- data (1D array)
-            |- axis_type (attribute: "bin_edges")
-            |- axis_units (attribute: "unitless")
-    |- b_bin_edges
-        |- data (1D array)
-            |- axis_type (attribute: "bin_edges")
-            |- axis_units (attribute: "Tesla")
-    |- rho_bin_edges
-        |- data (1D array)
-            |- axis_type (attribute: "bin_edges")
-            |- axis_units (attribute: "kg/m^3")
-    |- k_modes
-        |- data (1D array)
-            |- axis_type (attribute: "wavenumber")
-            |- axis_units (attribute: "1/m")
+    |- time
+      |- sim_cadence
+          |- data (1D array)
+              |- axis_units (attribute: "seconds")
+      |- dump_cadence
+          |- data (1D array)
+              |- axis_units (attribute: "seconds")
+    |- bin_edges
+      |- kappa_bin_edges
+          |- data (1D array)
+              |- axis_units (attribute: "unitless")
+      |- b_bin_edges
+          |- data (1D array)
+              |- axis_units (attribute: "Tesla")
+      |- rho_bin_edges
+          |- data (1D array)
+              |- axis_units (attribute: "kg/m^3")
+    |- other
+      |- k_modes
+          |- data (1D array)
+              |- axis_units (attribute: "L / 2 pi")
 |- datasets
-    |- volume_integrated_values
+    |- volume_integrated
         |- mach_number
             |- data (1D array)
-                |- axis_0_tag (attribute: "/axes/time_vi_cadence")
+                |- axis_0_tag (attribute: "/axes/time/sim_cadence")
         |- kinetic_energy
             |- data (1D array)
-                |- axis_0_tag (attribute: "/axes/time_vi_cadence")
+                |- axis_0_tag (attribute: "/axes/time/sim_cadence")
         |- magnetic_energy
             |- data (1D array)
-                |- axis_0_tag (attribute: "/axes/time_vi_cadence")
+                |- axis_0_tag (attribute: "/axes/time/sim_cadence")
     |- spectra
         |- kinetic_energy_spectra
             |- data (2D array)
-                |- axis_0_tag (attribute: "/axes/time_dump_cadence")
-                |- axis_1_tag (attribute: "/axes/k_modes")
+                |- axis_0_tag (attribute: "/axes/time/dump_cadence")
+                |- axis_1_tag (attribute: "/axes/other/k_modes")
         |- magnetic_energy_spectra
             |- data (2D array)
-                |- axis_0_tag (attribute: "/axes/time_dump_cadence")
-                |- axis_1_tag (attribute: "/axes/k_modes")
+                |- axis_0_tag (attribute: "/axes/time/dump_cadence")
+                |- axis_1_tag (attribute: "/axes/other/k_modes")
     |- pdfs
         |- kappa_pdf_p16
             |- data (1D array)
-                |- axis_0_tag (attribute: "/axes/kappa_bin_edges")
+                |- axis_0_tag (attribute: "/axes/bin_edges/kappa_bin_edges")
         |- kappa_pdf_p50
             |- data (1D array)
-                |- axis_0_tag (attribute: "/axes/kappa_bin_edges")
+                |- axis_0_tag (attribute: "/axes/bin_edges/kappa_bin_edges")
         |- kappa_pdf_p84
             |- data (1D array)
-                |- axis_0_tag (attribute: "/axes/kappa_bin_edges")
+                |- axis_0_tag (attribute: "/axes/bin_edges/kappa_bin_edges")
         |- b_pdf_p16
             |- data (1D array)
-                |- axis_0_tag (attribute: "/axes/b_bin_edges")
+                |- axis_0_tag (attribute: "/axes/bin_edges/b_bin_edges")
         |- b_pdf_p50
             |- data (1D array)
-                |- axis_0_tag (attribute: "/axes/b_bin_edges")
+                |- axis_0_tag (attribute: "/axes/bin_edges/b_bin_edges")
         |- b_pdf_p84
             |- data (1D array)
-                |- axis_0_tag (attribute: "/axes/b_bin_edges")
+                |- axis_0_tag (attribute: "/axes/bin_edges/b_bin_edges")
         |- rho_pdf_p16
             |- data (1D array)
-                |- axis_0_tag (attribute: "/axes/rho_bin_edges")
+                |- axis_0_tag (attribute: "/axes/bin_edges/rho_bin_edges")
         |- rho_pdf_p50
             |- data (1D array)
-                |- axis_0_tag (attribute: "/axes/rho_bin_edges")
+                |- axis_0_tag (attribute: "/axes/bin_edges/rho_bin_edges")
         |- rho_pdf_p84
             |- data (1D array)
-                |- axis_0_tag (attribute: "/axes/rho_bin_edges")
+                |- axis_0_tag (attribute: "/axes/bin_edges/rho_bin_edges")
     |- jpdfs
         |- kappa_b_p16
             |- data (2D array)
-                |- axis_0_tag (attribute: "/axes/kappa_bin_edges")
-                |- axis_1_tag (attribute: "/axes/b_bin_edges")
+                |- axis_0_tag (attribute: "/axes/bin_edges/kappa_bin_edges")
+                |- axis_1_tag (attribute: "/axes/bin_edges/b_bin_edges")
         |- kappa_b_p50
             |- data (2D array)
-                |- axis_0_tag (attribute: "/axes/kappa_bin_edges")
-                |- axis_1_tag (attribute: "/axes/b_bin_edges")
+                |- axis_0_tag (attribute: "/axes/bin_edges/kappa_bin_edges")
+                |- axis_1_tag (attribute: "/axes/bin_edges/b_bin_edges")
         |- kappa_b_p84
             |- data (2D array)
-                |- axis_0_tag (attribute: "/axes/kappa_bin_edges")
-                |- axis_1_tag (attribute: "/axes/b_bin_edges")
+                |- axis_0_tag (attribute: "/axes/bin_edges/kappa_bin_edges")
+                |- axis_1_tag (attribute: "/axes/bin_edges/b_bin_edges")
         |- rho_b_p16
             |- data (2D array)
-                |- axis_0_tag (attribute: "/axes/rho_bin_edges")
-                |- axis_1_tag (attribute: "/axes/b_bin_edges")
+                |- axis_0_tag (attribute: "/axes/bin_edges/rho_bin_edges")
+                |- axis_1_tag (attribute: "/axes/bin_edges/b_bin_edges")
         |- rho_b_p50
             |- data (2D array)
-                |- axis_0_tag (attribute: "/axes/rho_bin_edges")
-                |- axis_1_tag (attribute: "/axes/b_bin_edges")
+                |- axis_0_tag (attribute: "/axes/bin_edges/rho_bin_edges")
+                |- axis_1_tag (attribute: "/axes/bin_edges/b_bin_edges")
         |- rho_b_p84
             |- data (2D array)
-                |- axis_0_tag (attribute: "/axes/rho_bin_edges")
-                |- axis_1_tag (attribute: "/axes/b_bin_edges")
+                |- axis_0_tag (attribute: "/axes/bin_edges/rho_bin_edges")
+                |- axis_1_tag (attribute: "/axes/bin_edges/b_bin_edges")
 |- metadata
     |- experiment_description (attribute: "Example Experiment")
     |- measurement_units (attribute: "SI Units")
@@ -254,9 +251,7 @@ The HDF5DataManager class provides a comprehensive solution for managing scienti
 
 2. Axis Management
 
-- Add/update axes with add_axis method
-
-- Support for overwriting or extending existing axes
+- Support for overwriting or extending/merging existing axes
 
 - Enforce monotonicity and handle locked axes
 
@@ -264,13 +259,9 @@ The HDF5DataManager class provides a comprehensive solution for managing scienti
 
 3. Dataset Management
 
-- Add datasets with add_data method
-
 - Support multi-dimensional datasets
 
 - Associate datasets with existing axes
-
-- Handle datasets without associated axes
 
 4. Metadata Management
 
@@ -280,19 +271,17 @@ The HDF5DataManager class provides a comprehensive solution for managing scienti
 
 - Save data structure to HDF5 file (save_to_hdf5)
 
-- Load complete data structure from HDF5 file (load_from_hdf5)
+- Load specific datasets or groups
 
-- Load specific datasets or groups (load_specific_dataset)
-
-- Read file structure without loading all data (read_file_structure)
+- Read file structure without loading all data
 
 6. Data Integrity
 
 - Cull unused axes before saving (cull_unused_axes)
 
-- Check consistency between dataset dimensions and associated axes (check_consistency)
+- Check consistency between dataset dimensions and associated axes
 
-- Track axes needing reindexing (self.axes_needing_reindex)
+- reindex data when a (shared) axis has been extended (usually when another dataset has added values)
 
 7. Error Handling
 
@@ -308,17 +297,3 @@ The HDF5DataManager class provides a comprehensive solution for managing scienti
 
 - Dataset dimensions must match the number of associated axes
 
-
-Implementation Notes:
-
-- Use numpy for numerical operations and data storage
-
-- Utilize h5py for HDF5 file interactions
-
-- Implement robust validation in add_axis and add_data methods
-
-- Ensure efficient partial loading of large datasets
-
-- Maintain clear separation between data structure and file operations
-
-This structure allows for flexible management of scientific data, supporting various dimensions and types while maintaining data integrity and efficient storage/retrieval operations.
