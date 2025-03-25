@@ -21,13 +21,25 @@ class AxisObject:
         self.name   = name
         self.values = np.array(values)
         self.units  = units
-        self.locked = False
         self.notes  = notes
+        self.locked = False # the locking logic needs to be considered in greater depth
 
     def add(self, values_in, bool_overwrite=False):
         if self.locked: raise ValueError(f"Axis `/axes/{self.group}/{self.name}` is locked and cannot be modified.")
-        self.values = np.unique(np.concatenate((self.values, np.array(values_in))))
+        self.values = np.unique(np.concatenate((self.values, np.array(values_in)))) # equivelant to np.array(sorted(set(self.values) | set(values_in)))
 
+    def __eq__(self, obj_axis):
+        if isinstance(obj_axis, AxisObject):
+            bool_same_properties = all([
+                self.group == obj_axis.group,
+                self.name == obj_axis.name,
+                np.array_equal(self.values, obj_axis.values),
+                self.units == obj_axis.units,
+                self.notes == obj_axis.notes
+            ])
+            # print(f"axis `{self.group}/{self.name}` and `{obj_axis.group}/{obj_axis.name}` are {'the same' if bool_identical else 'different'}.") # for debugging
+            return bool_same_properties
+        return False
 
 class DatasetObject:
     def __init__(self, group, name, values, list_axis_objs, units=DatasetUnits.NOT_SPECIFIED, notes=""):
@@ -36,7 +48,7 @@ class DatasetObject:
         self.data   = np.array(values)
         self.units  = units
         self.notes  = notes
-        self.locked = False
+        self.locked = False # the locking logic needs to be considered in greater depth
         self.list_axis_objs_copy = copy.deepcopy(list_axis_objs)
 
     def add(self, dataset_values_in, list_axis_values_in, list_axis_objs_updated, bool_overwrite=False):
@@ -56,15 +68,22 @@ class DatasetObject:
         dataset_values_updated = np.full(updated_dataset_shape, np.nan)
         dataset_indices_old = tuple(
             np.searchsorted(obj_axis_updated.values, old_axis_values)
-            for obj_axis_updated, old_axis_values in zip(self.list_axis_objs_copy, list_axis_values_old)
+            for obj_axis_updated, old_axis_values in zip(
+                self.list_axis_objs_copy,
+                list_axis_values_old
+            )
         )
         dataset_values_updated[np.ix_(*dataset_indices_old)] = self.data
         if dataset_values_in is not None:
-            dataset_indices_new = tuple(
+            ## `in` may not necessarily be `new`. where `old` == `in` -> overwrite, and where `old` != `in` -> merge/add
+            dataset_indices_in = tuple(
                 np.searchsorted(obj_axis_updated.values, new_axis_values)
-                for obj_axis_updated, new_axis_values in zip(self.list_axis_objs_copy, list_axis_values_in)
+                for obj_axis_updated, new_axis_values in zip(
+                    self.list_axis_objs_copy,
+                    list_axis_values_in
+                )
             )
-            dataset_values_updated[np.ix_(*dataset_indices_new)] = dataset_values_in
+            dataset_values_updated[np.ix_(*dataset_indices_in)] = dataset_values_in
         self.data = dataset_values_updated
 
 
@@ -83,11 +102,19 @@ class HDF5DataManager:
         dataset_name   = dict_dataset.get("name")
         dataset_values = dict_dataset.get("values")
         dataset_units  = dict_dataset.get("units")
-        list_axis_objs = [
-            self._create_or_update_axis(dict_axis, bool_overwrite)
-            for dict_axis in list_axis_dicts
+        list_axis_values_in = [
+            dict_axis_in.get("values")
+            for dict_axis_in in list_axis_dicts
         ]
-        for obj_axis in list_axis_objs:
+        list_axis_objs_in = [
+            self._create_axis(dict_axis_in)
+            for dict_axis_in in list_axis_dicts
+        ]
+        list_axis_objs_updated = [
+            self._create_or_update_axis(dict_axis_in, bool_overwrite)
+            for dict_axis_in in list_axis_dicts
+        ]
+        for obj_axis in list_axis_objs_updated:
             axis_id    = (obj_axis.group, obj_axis.name)
             dataset_id = (dataset_group, dataset_name)
             if axis_id not in self.dict_axis_dependencies:
@@ -103,21 +130,33 @@ class HDF5DataManager:
                 name   = dataset_name,
                 values = dataset_values,
                 units  = dataset_units,
-                list_axis_objs = list_axis_objs
+                list_axis_objs = list_axis_objs_in
             )
         else:
             ## merge new data into the existing dataset
-            list_axis_values = [
-                dict_axis.get("values")
-                for dict_axis in list_axis_dicts
-            ]
             self.dict_datasets[dataset_group][dataset_name].add(
                 dataset_values_in      = dataset_values,
-                list_axis_values_in    = list_axis_values, # input axes values that have not been merged with existing axes
-                list_axis_objs_updated = list_axis_objs,
+                list_axis_values_in    = list_axis_values_in, # input axes values that have not been merged with the existing axes
+                list_axis_objs_updated = list_axis_objs_updated,
                 bool_overwrite         = bool_overwrite
             )
-        self._check_axis_dependency_and_reindex_where_necessary(list_axis_objs)
+        self._check_axis_dependency_and_reindex_where_necessary(
+            list_axis_values_in    = list_axis_values_in,
+            list_axis_objs_updated = list_axis_objs_updated,
+        )
+
+    def _create_axis(self, dict_axis):
+        ## the following properties should be gauranteed, at least with default values defined by the class that creates the dict
+        axis_group  = dict_axis.get("group")
+        axis_name   = dict_axis.get("name")
+        axis_values = dict_axis.get("values")
+        axis_units  = dict_axis.get("units")
+        return AxisObject(
+            group  = axis_group,
+            name   = axis_name,
+            values = axis_values,
+            units  = axis_units
+        )
 
     def _create_or_update_axis(self, dict_axis, bool_overwrite=False):
         ## the following properties should be gauranteed, at least with default values defined by the class that creates the dict
@@ -137,20 +176,19 @@ class HDF5DataManager:
         else: self.dict_axes[axis_group][axis_name].add(axis_values, bool_overwrite)
         return self.dict_axes[axis_group][axis_name]
 
-    def _check_axis_dependency_and_reindex_where_necessary(self, updated_axes):
-        for axis in updated_axes:
-            axis_key = (axis.group, axis.name)
-            if axis_key in self.dict_axis_dependencies:
-                for dataset_group, dataset_name in self.dict_axis_dependencies[axis_key]:
+    def _check_axis_dependency_and_reindex_where_necessary(self, list_axis_values_in, list_axis_objs_updated):
+        for obj_axis_updated in list_axis_objs_updated:
+            axis_id = (obj_axis_updated.group, obj_axis_updated.name)
+            if axis_id in self.dict_axis_dependencies:
+                for dataset_group, dataset_name in self.dict_axis_dependencies[axis_id]:
                     dataset = self.dict_datasets[dataset_group][dataset_name]
-                    new_axis_values = [
-                        self.dict_axes[axis.group][axis.name].values
-                        for axis in dataset.list_axis_objs_copy
-                    ]
+                    bool_axes_refs_up_to_date = dataset.list_axis_objs_copy == list_axis_objs_updated
+                    bool_dataset_shape_matches_axes = dataset.data.shape == tuple(len(axis.values) for axis in list_axis_objs_updated)
+                    if bool_axes_refs_up_to_date and bool_dataset_shape_matches_axes: continue
+                    print(f"reindexing: {dataset_group}/{dataset_name}")
                     dataset.reindex(
-                        list_axis_values_in    = new_axis_values,
-                        list_axis_objs_updated = dataset.list_axis_objs_copy,
-                        dataset_values_in      = dataset.data
+                        list_axis_values_in    = list_axis_values_in,
+                        list_axis_objs_updated = list_axis_objs_updated,
                     )
 
     def lock_axis(self, axis_group, axis_name):
@@ -244,39 +282,58 @@ class TestHDF5DataManager(unittest.TestCase):
     #     dataset_values = np.random.rand(length)
     #     axis_dict = HDF5DataManager.create_dict_axis("axis_group", "axis_name", axis_values, AxisUnits.NOT_SPECIFIED)
     #     dataset_dict = HDF5DataManager.create_dict_dataset("dataset_group", "dataset_name", dataset_values, DatasetUnits.NOT_SPECIFIED)
-    #     self.h5dmanager.add_data(dataset_dict, [axis_dict], bool_overwrite=False)
+    #     self.h5dmanager.add_data(dataset_dict, [axis_dict])
     #     stored_data = self.h5dmanager.get_dataset("dataset_group", "dataset_name")
     #     np.testing.assert_array_equal(stored_data, dataset_values)
 
     # def test_extend_data(self):
-    #     length = 100
+    #     length = 10
+    #     axis_split_from_factor = 2
+    #     index_start_extension_from = length // axis_split_from_factor
     #     axis_values1 = np.arange(length)
-    #     dataset_values1 = np.random.rand(length)
+    #     dataset_values1 = np.ones(length)
     #     axis_dict1 = HDF5DataManager.create_dict_axis("axis_group", "axis_name", axis_values1, AxisUnits.NOT_SPECIFIED)
     #     dataset_dict1 = HDF5DataManager.create_dict_dataset("dataset_group", "dataset_name", dataset_values1, DatasetUnits.NOT_SPECIFIED)
-    #     self.h5dmanager.add_data(dataset_dict1, [axis_dict1], bool_overwrite=False)
-    #     axis_values2 = length + np.arange(length)
-    #     dataset_values2 = np.random.rand(length)
+    #     self.h5dmanager.add_data(dataset_dict1, [axis_dict1])
+    #     axis_values2 = index_start_extension_from + np.arange(length)
+    #     dataset_values2 = 2 * np.ones(length)
     #     axis_dict2 = HDF5DataManager.create_dict_axis("axis_group", "axis_name", axis_values2, AxisUnits.NOT_SPECIFIED)
     #     dataset_dict2 = HDF5DataManager.create_dict_dataset("dataset_group", "dataset_name", dataset_values2, DatasetUnits.NOT_SPECIFIED)
-    #     self.h5dmanager.add_data(dataset_dict2, [axis_dict2], bool_overwrite=False)
+    #     self.h5dmanager.add_data(dataset_dict2, [axis_dict2])
+    #     stored_axis = self.h5dmanager.get_axis("axis_group", "axis_name")
     #     stored_data = self.h5dmanager.get_dataset("dataset_group", "dataset_name")
-    #     np.testing.assert_array_equal(stored_data, np.concatenate([dataset_values1, dataset_values2]))
+    #     np.testing.assert_array_equal(stored_axis, np.unique(np.concatenate([axis_values1, axis_values2])))
+    #     np.testing.assert_array_equal(stored_data, np.concatenate([dataset_values1[:index_start_extension_from], dataset_values2]))
 
-    def test_reindexing_shared_axis(self):
-        length = 100
+    def test_extend_shared_axis(self):
+        length = 5
         axis_values1 = np.arange(length)
-        dataset_values1 = np.random.rand(length)
+        dataset_values1 = np.ones(length)
         axis_dict1 = HDF5DataManager.create_dict_axis("axis_group", "axis_name", axis_values1, AxisUnits.NOT_SPECIFIED)
-        dataset_dict1 = HDF5DataManager.create_dict_dataset("dataset_group", "dataset_name", dataset_values1, DatasetUnits.NOT_SPECIFIED)
-        self.h5dmanager.add_data(dataset_dict1, [axis_dict1], bool_overwrite=False)
+        dataset_dict1 = HDF5DataManager.create_dict_dataset("dataset_group", "dataset_name1", dataset_values1, DatasetUnits.NOT_SPECIFIED)
+        self.h5dmanager.add_data(dataset_dict1, [axis_dict1])
+        stored_axis  = self.h5dmanager.get_axis("axis_group", "axis_name")
+        stored_data1 = self.h5dmanager.get_dataset("dataset_group", "dataset_name1")
+        print(stored_axis)
+        print(stored_data1)
         axis_values2 = length + np.arange(length)
-        dataset_values2 = np.random.rand(length)
+        dataset_values2 = 2 * np.ones(length)
         axis_dict2 = HDF5DataManager.create_dict_axis("axis_group", "axis_name", axis_values2, AxisUnits.NOT_SPECIFIED)
         dataset_dict2 = HDF5DataManager.create_dict_dataset("dataset_group", "dataset_name2", dataset_values2, DatasetUnits.NOT_SPECIFIED)
-        self.h5dmanager.add_data(dataset_dict2, [axis_dict2], bool_overwrite=False)
-        stored_data = self.h5dmanager.get_dataset("dataset_group", "dataset_name")
-        np.testing.assert_array_equal(stored_data, np.concatenate([dataset_values1, dataset_values2]))
+        self.h5dmanager.add_data(dataset_dict2, [axis_dict2])
+        stored_axis  = self.h5dmanager.get_axis("axis_group", "axis_name")
+        stored_data1 = self.h5dmanager.get_dataset("dataset_group", "dataset_name1")
+        stored_data2 = self.h5dmanager.get_dataset("dataset_group", "dataset_name2")
+        padded_dataset_values1 = np.concatenate([dataset_values1, np.full_like(dataset_values2, np.nan)])
+        padded_dataset_values2 = np.concatenate([np.full_like(dataset_values1, np.nan), dataset_values2])
+        print(stored_axis)
+        print(stored_data1)
+        print(stored_data2)
+        print(padded_dataset_values1)
+        print(padded_dataset_values2)
+        np.testing.assert_array_equal(stored_axis, np.unique(np.concatenate([axis_values1, axis_values2])))
+        np.testing.assert_array_equal(stored_data1, padded_dataset_values1)
+        np.testing.assert_array_equal(stored_data2, padded_dataset_values2)
 
     # def test_add_2d_dataset(self):
     #     length_rows = 50
@@ -285,7 +342,7 @@ class TestHDF5DataManager(unittest.TestCase):
     #     dict_axis_cols = HDF5DataManager.create_dict_axis("axis_group", "axis_cols", np.arange(length_cols), AxisUnits.NOT_SPECIFIED)
     #     dataset_values_in = np.random.rand(length_rows, length_cols)
     #     dict_dataset = HDF5DataManager.create_dict_dataset("dataset_group", "dataset_name", dataset_values_in, DatasetUnits.NOT_SPECIFIED)
-    #     self.h5dmanager.add_data(dict_dataset, [dict_axis_rows, dict_axis_cols], bool_overwrite=False)
+    #     self.h5dmanager.add_data(dict_dataset, [dict_axis_rows, dict_axis_cols])
     #     dataset_values_read = self.h5dmanager.get_dataset("dataset_group", "dataset_name")
     #     np.testing.assert_array_equal(dataset_values_read, dataset_values_in)
 
