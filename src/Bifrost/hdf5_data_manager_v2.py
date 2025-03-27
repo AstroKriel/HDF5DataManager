@@ -1,4 +1,6 @@
 import copy
+import h5py
+import json
 import unittest
 import numpy as np
 from enum import Enum
@@ -35,7 +37,7 @@ class AxisObject:
             "group"  : self.group,
             "name"   : self.name,
             "values" : self.values,
-            "units"  : self.units.value,
+            "units"  : str(self.units),
             "notes"  : self.notes,
         }
 
@@ -122,20 +124,115 @@ class DatasetObject:
             "group"  : self.group,
             "name"   : self.name,
             "values" : self.values,
-            "units"  : self.units.value,
+            "units"  : str(self.units),
             "notes"  : self.notes,
-            "list_axis_objs": [
-                axis.get_dict()
-                for axis in self.list_axis_objs
+            "list_axis_dicts": [
+                obj_axis.get_dict()
+                for obj_axis in self.list_axis_objs
             ],
         }
 
 
 class HDF5DataManager:
     def __init__(self):
-        self.dict_axes_global = {}  # {group: {name: AxisObject}}
-        self.dict_datasets = {}  # {group: {name: DatasetObject}}
-        self.dict_axis_dependencies = {}  # { (axis_group, axis_name): [(dataset_group, dataset_name), ...] }
+        self.dict_global_axes = {}  # { axes_group: { axis_name: AxisObject, ... }, ... }
+        self.dict_datasets = {}  # { dataset_group: { dataset_name: DatasetObject, ... }, ... }
+        self.dict_axis_dependencies = {}  # { (axis_group, axis_name): [ (dataset_group, dataset_name), ... ], ... }
+
+    @classmethod
+    def load_hdf5_file(cls, file_path):
+        obj_h5dm = cls() # instance of HDF5DataManager
+        with h5py.File(file_path, "r") as h5_file:
+            ## load global axes
+            if "global_axes" in h5_file:
+                for axis_group, h5_global_axes_group in h5_file["global_axes"].items():
+                    obj_h5dm.dict_global_axes[axis_group] = {}
+                    for axis_name, h5_global_axis in h5_global_axes_group.items():
+                        obj_h5dm.dict_global_axes[axis_group][axis_name] = AxisObject(
+                            group  = axis_group,
+                            name   = axis_name,
+                            values = np.array(h5_global_axis[:]),
+                            units  = h5_global_axis.attrs.get("units", ""),
+                            notes  = h5_global_axis.attrs.get("notes", ""),
+                        )
+                        axis_id = (axis_group, axis_name)
+                        str_axis_dependencies = h5_global_axis.attrs.get("dependencies", "[]")
+                        obj_h5dm.dict_axis_dependencies[axis_id] = [
+                            tuple(dependency.split("/"))
+                            for dependency in json.loads(str_axis_dependencies)
+                        ]
+            ## load datasets
+            if "datasets" in h5_file:
+                for dataset_group, h5_datasets in h5_file["datasets"].items():
+                    obj_h5dm.dict_datasets[dataset_group] = {}
+                    for dataset_name, h5_dataset in h5_datasets.items():
+                        ## load dataset values and metadata
+                        dataset_values = np.array(h5_dataset[:])
+                        dataset_units = h5_dataset.attrs.get("units", "")
+                        dataset_notes = h5_dataset.attrs.get("notes", "")
+                        ## load local axes
+                        list_axis_objs = []
+                        axis_index = 0
+                        while f"local_axis_{axis_index}" in h5_dataset:
+                            h5_local_axis = h5_dataset[f"local_axis_{axis_index}"]
+                            axis_group    = h5_local_axis.attrs["group"]
+                            axis_name     = h5_local_axis.attrs["name"]
+                            axis_values   = np.array(h5_local_axis["values"][:])
+                            axis_obj = AxisObject(
+                                group  = axis_group,
+                                name   = axis_name,
+                                values = axis_values,
+                                units  = "", # no units stored for local axes (see global axis)
+                                notes  = "", # no notes stored for local axes (see global axis)
+                            )
+                            list_axis_objs.append(axis_obj)
+                            axis_index += 1
+                        ## create dataset object
+                        obj_h5dm.dict_datasets[dataset_group][dataset_name] = DatasetObject(
+                            group  = dataset_group,
+                            name   = dataset_name,
+                            values = dataset_values,
+                            units  = dataset_units,
+                            notes  = dataset_notes,
+                            list_axis_objs = list_axis_objs,
+                        )
+        return obj_h5dm
+
+    def save_hdf5_file(self, file_path):
+        with h5py.File(file_path, "w") as h5_file:
+            ## save global axes
+            h5_global_axes = h5_file.create_group("global_axes")
+            for axis_group, dict_axes_group in self.dict_global_axes.items():
+                h5_global_axes_group = h5_global_axes.create_group(axis_group)
+                for axis_name, obj_axis_global in dict_axes_group.items():
+                    ## store global axis values: super-set of all the values in the various instances of this axis
+                    h5_global_axis = h5_global_axes_group.create_dataset(axis_name, data=np.array(obj_axis_global.values))
+                    h5_global_axis.attrs["units"] = str(obj_axis_global.units)
+                    h5_global_axis.attrs["notes"] = obj_axis_global.notes
+                    ## store dataset dependencies: list of dataset paths that use this axis
+                    axis_id = (axis_group, axis_name)
+                    if axis_id in self.dict_axis_dependencies:
+                        list_axis_dependencies = [
+                            f"{dataset_group}/{dataset_name}"
+                            for dataset_group, dataset_name in self.dict_axis_dependencies[axis_id]
+                        ]
+                        h5_dataset.attrs["dependencies"] = json.dumps(list_axis_dependencies) # store as JSON string
+            ## save datasets
+            h5_datasets = h5_file.create_group("datasets")
+            for dataset_group, datasets in self.dict_datasets.items():
+                h5_datasets_group = h5_datasets.create_group(dataset_group)
+                for dataset_name, obj_dataset in datasets.items():
+                    h5_dataset = h5_datasets_group.create_dataset(dataset_name, data=np.array(obj_dataset.values))
+                    h5_dataset.attrs["units"] = str(obj_dataset.units)
+                    h5_dataset.attrs["notes"] = obj_dataset.notes
+                    ## store the local axes values
+                    for axis_index, obj_axis_local in enumerate(obj_dataset.list_axis_objs):
+                        axis_group = obj_axis_local.group
+                        axis_name = obj_axis_local.name
+                        h5_axis_group = h5_dataset.create_group(f"local_axis_{axis_index}")
+                        h5_axis_group.create_dataset("values", data=np.array(obj_axis_local.values))
+                        h5_axis_group.attrs["group"] = axis_group
+                        h5_axis_group.attrs["name"]  = axis_name
 
     def add(self, dict_dataset, list_axis_dicts):
         dataset_group  = dict_dataset.get("group")
@@ -178,15 +275,19 @@ class HDF5DataManager:
                 list_axis_objs.append(obj_axis)
             else: list_axis_values.append(axis_values)
             ## create the global version of the dataset group if it does not already exist
-            if axis_group not in self.dict_axes_global:
-                self.dict_axes_global[axis_group] = {}
+            if axis_group not in self.dict_global_axes:
+                self.dict_global_axes[axis_group] = {}
             ## initialise the global axis object if it does not already exist
-            if axis_name not in self.dict_axes_global[axis_group]:
+            if axis_name not in self.dict_global_axes[axis_group]:
                 ## use a copy of the local axis object
                 ## note: a deep-copy is necessary, so that the global values can be extended without affecting the local dataset axis
-                self.dict_axes_global[axis_group][axis_name] = copy.deepcopy(obj_axis)
+                self.dict_global_axes[axis_group][axis_name] = copy.deepcopy(obj_axis)
             ## make sure that the global axis object conatains the superset of all the values in the various instances of the same `axis_group/axis_name`
-            else: self.dict_axes_global[axis_group][axis_name].add(axis_values)
+            else:
+                obj_axis_global = self.dict_global_axes[axis_group][axis_name]
+                obj_axis_global.add(axis_values)
+                if axis_units != AxisUnits.NOT_SPECIFIED: obj_axis_global.units = axis_units
+                if len(axis_notes) > 0: obj_axis_global.notes = axis_notes
         if bool_init_dataset:
             ## initialise the dataset object
             self.dict_datasets[dataset_group][dataset_name] = DatasetObject(
@@ -210,7 +311,7 @@ class HDF5DataManager:
         ## ensure alignment between dataset and axes
         ## 1. make sure that the right number of axes have been provided
         if dataset_values.ndim != len(list_axis_dicts):
-            list_errors.append(f"Dataset has {dataset_values.ndim} dimensions, but {len(list_axis_dicts)} axis objects are provided.")
+            list_errors.append(f"Dataset has {dataset_values.ndim} dimensions, but only {len(list_axis_dicts)} axis object(s) has been provided.")
         ## 2. make sure that each of the input dataset values has a corresponding axis value
         for axis_index, dict_axis in enumerate(list_axis_dicts):
             axis_values = dict_axis.get("values")
@@ -234,7 +335,7 @@ class HDF5DataManager:
         ## build a list of global axis values not in the local axis. use this to reindex/reshape the dataset
         list_new_axis_values_from_global = []
         for obj_axis_local in obj_dataset_copy.list_axis_objs:
-            obj_axis_global = self.dict_axes_global.get(obj_axis_local.group, {}).get(obj_axis_local.name)
+            obj_axis_global = self.dict_global_axes.get(obj_axis_local.group, {}).get(obj_axis_local.name)
             new_axis_values = np.array([])
             if obj_axis_global is not None: new_axis_values = np.setdiff1d(obj_axis_global.values, obj_axis_local.values)
             list_new_axis_values_from_global.append(new_axis_values)
@@ -258,6 +359,8 @@ class HDF5DataManager:
         if not isinstance(values, (list, np.ndarray)):
             raise TypeError("Axis values must be a list or numpy array.")
         values = np.array(values)
+        if values.size == 0:
+            raise ValueError("Axis values cannot be empty.")
         if values.ndim != 1:
             raise ValueError("Axis values must be a 1D array.")
         if not np.issubdtype(values.dtype, np.number):
@@ -293,6 +396,10 @@ class HDF5DataManager:
         if not isinstance(values, (list, np.ndarray)):
             raise TypeError("Dataset values must be a list or numpy array.")
         values = np.array(values)
+        if values.size == 0:
+            raise ValueError("Dataset values cannot be empty.")
+        if not np.issubdtype(values.dtype, np.number):
+            raise TypeError("Dataset values must be numeric (either integers or floats).")
         if not isinstance(units, DatasetUnits):
             raise TypeError(f"Invalid dataset unit: {units}. Must be an instance of DatasetUnits.")
         if not isinstance(notes, str):
@@ -308,7 +415,7 @@ class HDF5DataManager:
 class TestHDF5DataManager(unittest.TestCase):
 
     def setUp(self):
-        self.h5dmanager = HDF5DataManager()
+        self.obj_h5dm = HDF5DataManager()
 
     def test_invalid_axis_creation(self):
         with self.assertRaises(ValueError):
@@ -360,15 +467,15 @@ class TestHDF5DataManager(unittest.TestCase):
         dataset_values = np.random.rand(length)
         axis_dict = HDF5DataManager.create_dict_axis("axis_group", "axis_name", axis_values, AxisUnits.NOT_SPECIFIED)
         dataset_dict = HDF5DataManager.create_dict_dataset("dataset_group", "dataset_name", dataset_values, DatasetUnits.NOT_SPECIFIED)
-        self.h5dmanager.add(dataset_dict, [axis_dict])
-        dict_dataset = self.h5dmanager.get_data_local("dataset_group", "dataset_name")
+        self.obj_h5dm.add(dataset_dict, [axis_dict])
+        dict_dataset = self.obj_h5dm.get_data_local("dataset_group", "dataset_name")
         self.assertIsNotNone(dict_dataset)
         stored_data = dict_dataset["values"]
         np.testing.assert_array_equal(stored_data, dataset_values)
 
     def test_get_nonexistent_datasets(self):
-        self.assertIsNone(self.h5dmanager.get_data_local("nonexistent_group", "nonexistent_name"))
-        self.assertIsNone(self.h5dmanager.get_data_global("nonexistent_group", "nonexistent_name"))
+        self.assertIsNone(self.obj_h5dm.get_data_local("nonexistent_group", "nonexistent_name"))
+        self.assertIsNone(self.obj_h5dm.get_data_global("nonexistent_group", "nonexistent_name"))
 
     def test_adding_multiple_datasets_with_a_shared_axis(self):
         length_1 = 50
@@ -381,10 +488,10 @@ class TestHDF5DataManager(unittest.TestCase):
         axis_dict_2 = HDF5DataManager.create_dict_axis("axis_group_2", "axis_name_2", axis_values_2, AxisUnits.NOT_SPECIFIED)
         dataset_dict_1 = HDF5DataManager.create_dict_dataset("dataset_group", "dataset_1", dataset_values_1, DatasetUnits.NOT_SPECIFIED)
         dataset_dict_2 = HDF5DataManager.create_dict_dataset("dataset_group", "dataset_2", dataset_values_2, DatasetUnits.NOT_SPECIFIED)
-        self.h5dmanager.add(dataset_dict_1, [axis_dict_1])
-        self.h5dmanager.add(dataset_dict_2, [axis_dict_1, axis_dict_2])
-        dict_dataset_1 = self.h5dmanager.get_data_local("dataset_group", "dataset_1")
-        dict_dataset_2 = self.h5dmanager.get_data_local("dataset_group", "dataset_2")
+        self.obj_h5dm.add(dataset_dict_1, [axis_dict_1])
+        self.obj_h5dm.add(dataset_dict_2, [axis_dict_1, axis_dict_2])
+        dict_dataset_1 = self.obj_h5dm.get_data_local("dataset_group", "dataset_1")
+        dict_dataset_2 = self.obj_h5dm.get_data_local("dataset_group", "dataset_2")
         self.assertIsNotNone(dict_dataset_1)
         self.assertIsNotNone(dict_dataset_2)
         np.testing.assert_array_equal(dict_dataset_1["values"], dataset_values_1)
@@ -395,13 +502,13 @@ class TestHDF5DataManager(unittest.TestCase):
         dataset_values = np.array([10, 20, 30])
         axis_dict = HDF5DataManager.create_dict_axis("axis_group", "axis_name", axis_values, AxisUnits.NOT_SPECIFIED)
         dataset_dict = HDF5DataManager.create_dict_dataset("dataset_group", "dataset_name", dataset_values, DatasetUnits.NOT_SPECIFIED)
-        self.h5dmanager.add(dataset_dict, [axis_dict])
+        self.obj_h5dm.add(dataset_dict, [axis_dict])
         new_dataset_values = np.array([40, 50])
         new_axis_values = np.array([3, 4])
         new_axis_dict = HDF5DataManager.create_dict_axis("axis_group", "axis_name", new_axis_values, AxisUnits.NOT_SPECIFIED)
         new_dataset_dict = HDF5DataManager.create_dict_dataset("dataset_group", "dataset_name", new_dataset_values, DatasetUnits.NOT_SPECIFIED)
-        self.h5dmanager.add(new_dataset_dict, [new_axis_dict])
-        global_data = self.h5dmanager.get_data_global("dataset_group", "dataset_name")
+        self.obj_h5dm.add(new_dataset_dict, [new_axis_dict])
+        global_data = self.obj_h5dm.get_data_global("dataset_group", "dataset_name")
         self.assertIsNotNone(global_data)
         expected_values = np.array([10, 20, 30, 40, 50])
         np.testing.assert_array_equal(global_data["values"], expected_values)
@@ -411,13 +518,13 @@ class TestHDF5DataManager(unittest.TestCase):
         dataset_values = np.array([10, 20, 30])
         axis_dict = HDF5DataManager.create_dict_axis("axis_group", "axis_name", axis_values, AxisUnits.NOT_SPECIFIED)
         dataset_dict = HDF5DataManager.create_dict_dataset("dataset_group_1", "dataset_name_1", dataset_values, DatasetUnits.NOT_SPECIFIED)
-        self.h5dmanager.add(dataset_dict, [axis_dict])
+        self.obj_h5dm.add(dataset_dict, [axis_dict])
         new_dataset_values = np.array([40, 50])
         new_axis_values = np.array([3, 4])
         new_axis_dict = HDF5DataManager.create_dict_axis("axis_group", "axis_name", new_axis_values, AxisUnits.NOT_SPECIFIED)
         new_dataset_dict = HDF5DataManager.create_dict_dataset("dataset_group_2", "dataset_name_2", new_dataset_values, DatasetUnits.NOT_SPECIFIED)
-        self.h5dmanager.add(new_dataset_dict, [new_axis_dict])
-        global_data = self.h5dmanager.get_data_global("dataset_group_1", "dataset_name_1")
+        self.obj_h5dm.add(new_dataset_dict, [new_axis_dict])
+        global_data = self.obj_h5dm.get_data_global("dataset_group_1", "dataset_name_1")
         self.assertIsNotNone(global_data)
         expected_values = np.array([10, 20, 30, np.nan, np.nan])
         np.testing.assert_array_equal(global_data["values"], expected_values)
@@ -442,6 +549,95 @@ class TestHDF5DataManager(unittest.TestCase):
         dataset.reindex([new_axis_values], new_dataset_values)
         expected_values = np.array([0, 11, 22, 30])
         np.testing.assert_array_equal(dataset.values, expected_values)
+
+    # Edge case 1: Empty Axis Values
+    def test_empty_axis_values(self):
+        empty_axis_values = []
+        with self.assertRaises(ValueError):
+            HDF5DataManager.create_dict_axis("axis_group", "axis_name", empty_axis_values, AxisUnits.NOT_SPECIFIED)
+
+    # Edge case 3: Adding dataset with mismatched axis shapes
+    def test_mismatched_axis_and_dataset_shapes(self):
+        axis_values = np.arange(3)
+        axis_dict = HDF5DataManager.create_dict_axis("axis_group", "axis_name", axis_values, AxisUnits.NOT_SPECIFIED)
+        dataset_values = np.random.rand(4)  # Dataset shape does not match axis shape
+        dataset_dict = HDF5DataManager.create_dict_dataset("dataset_group", "dataset_name", dataset_values, DatasetUnits.NOT_SPECIFIED)
+        with self.assertRaises(ValueError):
+            self.obj_h5dm.add(dataset_dict, [axis_dict])
+
+    # Edge case 4: Axis values with NaN values
+    def test_axis_values_with_nan(self):
+        axis_values = np.array([1, 2, np.nan, 4])
+        with self.assertRaises(ValueError):
+            HDF5DataManager.create_dict_axis("axis_group", "axis_name", axis_values, AxisUnits.NOT_SPECIFIED)
+
+    # Edge case 5: Invalid axis unit type
+    def test_invalid_axis_unit_type(self):
+        axis_values = np.arange(3)
+        with self.assertRaises(TypeError):
+            HDF5DataManager.create_dict_axis("axis_group", "axis_name", axis_values, "invalid_unit")
+
+    # Edge case 6: Invalid dataset unit type
+    def test_invalid_dataset_unit_type(self):
+        dataset_values = np.random.rand(3)
+        with self.assertRaises(TypeError):
+            HDF5DataManager.create_dict_dataset("dataset_group", "dataset_name", dataset_values, "invalid_unit")
+
+    # Edge case 7: Adding new axis values that overlap
+    def test_adding_overlap_axis_values(self):
+        axis_values_1 = np.array([1, 2, 3])
+        axis_values_2 = np.array([2, 3, 4])
+        dataset_values = np.random.rand(3)
+        axis_dict_1 = HDF5DataManager.create_dict_axis("axis_group", "axis_name", axis_values_1, AxisUnits.NOT_SPECIFIED)
+        axis_dict_2 = HDF5DataManager.create_dict_axis("axis_group", "axis_name", axis_values_2, AxisUnits.NOT_SPECIFIED)
+        dataset_dict = HDF5DataManager.create_dict_dataset("dataset_group", "dataset_name", dataset_values, DatasetUnits.NOT_SPECIFIED)
+        self.obj_h5dm.add(dataset_dict, [axis_dict_1])
+        self.obj_h5dm.add(dataset_dict, [axis_dict_2])
+        # Check that both axis values are merged correctly without duplication
+        dict_dataset = self.obj_h5dm.get_data_local("dataset_group", "dataset_name")
+        axis_values_expected = np.unique(np.concatenate((axis_values_1, axis_values_2)))
+        np.testing.assert_array_equal(dict_dataset["list_axis_dicts"][0]["values"], axis_values_expected)
+
+    # Edge case 9: Adding duplicate dataset with identical axis
+    def test_duplicate_dataset_with_identical_axis(self):
+        axis_values = np.arange(3)
+        dataset_values = np.random.rand(3)
+        axis_dict = HDF5DataManager.create_dict_axis("axis_group", "axis_name", axis_values, AxisUnits.NOT_SPECIFIED)
+        dataset_dict = HDF5DataManager.create_dict_dataset("dataset_group", "dataset_name", dataset_values, DatasetUnits.NOT_SPECIFIED)
+        # Add dataset once
+        self.obj_h5dm.add(dataset_dict, [axis_dict])
+        dict_dataset_1 = self.obj_h5dm.get_data_local("dataset_group", "dataset_name")
+        self.assertIsNotNone(dict_dataset_1)
+        # Add identical dataset again (should not create a new dataset)
+        self.obj_h5dm.add(dataset_dict, [axis_dict])
+        dict_dataset_2 = self.obj_h5dm.get_data_local("dataset_group", "dataset_name")
+        np.testing.assert_array_equal(dict_dataset_1["values"], dict_dataset_2["values"])
+
+    # Edge case 10: Adding dataset with missing axis values
+    def test_missing_axis_values(self):
+        dataset_values = np.random.rand(3)  # Dataset does not have missing values in this case
+        dataset_dict = HDF5DataManager.create_dict_dataset("dataset_group", "dataset_name", dataset_values, DatasetUnits.NOT_SPECIFIED)
+        # Add the dataset with a missing axis
+        with self.assertRaises(ValueError):
+            self.obj_h5dm.add(dataset_dict, [])
+
+    # Edge case 11: Adding datasets with different units
+    def test_adding_datasets_with_different_units(self):
+        axis_values = np.arange(3)
+        axis_dict = HDF5DataManager.create_dict_axis("axis_group", "axis_name", axis_values, AxisUnits.NOT_SPECIFIED)
+        # Dataset with dimensionless units
+        dataset_values_1 = np.random.rand(3)
+        dataset_dict_1 = HDF5DataManager.create_dict_dataset("dataset_group", "dataset_1", dataset_values_1, DatasetUnits.DIMENSIONLESS)
+        # Dataset with different units
+        dataset_values_2 = np.random.rand(3)
+        dataset_dict_2 = HDF5DataManager.create_dict_dataset("dataset_group", "dataset_2", dataset_values_2, DatasetUnits.NOT_SPECIFIED)
+        # Adding datasets with different units
+        self.obj_h5dm.add(dataset_dict_1, [axis_dict])
+        self.obj_h5dm.add(dataset_dict_2, [axis_dict])
+        dict_dataset_1 = self.obj_h5dm.get_data_local("dataset_group", "dataset_1")
+        dict_dataset_2 = self.obj_h5dm.get_data_local("dataset_group", "dataset_2")
+        self.assertIsNotNone(dict_dataset_1)
+        self.assertIsNotNone(dict_dataset_2)
 
 if __name__ == "__main__":
     unittest.main()
