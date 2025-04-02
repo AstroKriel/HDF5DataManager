@@ -9,7 +9,8 @@ import h5py
 import json
 import numpy
 
-from bifrost import axes_utils, datasets_utils
+from bifrost import axes_manager
+from bifrost import datasets_manager
 
 
 ## ###############################################################
@@ -50,7 +51,7 @@ class HDF5DataManager:
         for axis_group, h5_global_axes_group in h5_file["global_axes"].items():
           obj_h5dm.dict_global_axes[axis_group] = {}
           for axis_name, h5_global_axis in h5_global_axes_group.items():
-            obj_h5dm.dict_global_axes[axis_group][axis_name] = axes_utils.AxisObject(
+            obj_h5dm.dict_global_axes[axis_group][axis_name] = axes_manager.AxisObject(
               group  = axis_group,
               name   = axis_name,
               values = numpy.array(h5_global_axis[:]),
@@ -85,7 +86,7 @@ class HDF5DataManager:
                 ## Retrieve global reference, if available
                 global_ref = obj_h5dm.dict_global_axes.get(axis_group, {}).get(axis_name, None)
                 ## Create local axis with global_ref
-                axis_obj = axes_utils.AxisObject(
+                axis_obj = axes_manager.AxisObject(
                   group  = axis_group,
                   name   = axis_name,
                   values = axis_values,
@@ -95,7 +96,7 @@ class HDF5DataManager:
                 )
                 list_axis_objs.append(axis_obj)
             ## Store dataset
-            obj_h5dm.dict_datasets[dataset_group][dataset_name] = datasets_utils.DatasetObject(
+            obj_h5dm.dict_datasets[dataset_group][dataset_name] = datasets_manager.DatasetObject(
               group  = dataset_group,
               name   = dataset_name,
               values = dataset_values,
@@ -114,7 +115,7 @@ class HDF5DataManager:
         for axis_name, obj_axis_global in dict_axes_group.items():
           ## store global axis values: super-set of all the values in the various instances of this axis
           h5_global_axis = h5_global_axes_group.create_dataset(axis_name, data=numpy.array(obj_axis_global.values))
-          units = axes_utils.AxisObject._cast_unit(obj_axis_global.units)
+          units = axes_manager.AxisObject._cast_unit(obj_axis_global.units)
           h5_global_axis.attrs["units"] = units
           h5_global_axis.attrs["notes"] = obj_axis_global.notes
           ## store dataset dependencies: list of dataset paths that use this axis
@@ -132,7 +133,7 @@ class HDF5DataManager:
         for dataset_name, obj_dataset in datasets.items():
           h5_dataset = h5_datasets_group.create_group(dataset_name)
           h5_dataset.create_dataset("values", data=numpy.array(obj_dataset.values))
-          units = datasets_utils.DatasetObject._cast_unit(obj_dataset.units)
+          units = datasets_manager.DatasetObject._cast_unit(obj_dataset.units)
           h5_dataset.attrs["units"] = units
           h5_dataset.attrs["notes"] = obj_dataset.notes
           h5_local_axes = h5_dataset.create_group("local_axes")
@@ -148,7 +149,7 @@ class HDF5DataManager:
     dataset_id     = (dataset_group, dataset_name)
     dataset_values = dict_dataset.get("values")
     dataset_units  = dict_dataset.get("units")
-    if isinstance(dataset_units, datasets_utils.DatasetUnits): dataset_units = dataset_units.value
+    if isinstance(dataset_units, datasets_manager.DatasetUnits): dataset_units = dataset_units.value
     dataset_notes  = dict_dataset.get("notes")
     HDF5DataManager._validate_dimensions(dataset_values, list_axis_dicts)
     ## create the dataset group if it does not already exist
@@ -166,7 +167,7 @@ class HDF5DataManager:
       axis_id     = (axis_group, axis_name)
       axis_values = dict_axis.get("values")
       axis_units  = dict_axis.get("units")
-      if isinstance(axis_units, axes_utils.AxisUnits): axis_units = axis_units.value
+      if isinstance(axis_units, axes_manager.AxisUnits): axis_units = axis_units.value
       axis_notes  = dict_axis.get("notes")
       ## make sure that the manager remembers that the dataset has a dependency on the axis
       if axis_id not in self.dict_axis_dependencies:
@@ -175,7 +176,7 @@ class HDF5DataManager:
         self.dict_axis_dependencies[axis_id].append(dataset_id)
       ## store information relevant for initialising or updating (merging + reindexing) the dataset
       if bool_init_dataset:
-        obj_axis_local = axes_utils.AxisObject(
+        obj_axis_local = axes_manager.AxisObject(
           group  = axis_group,
           name   = axis_name,
           values = axis_values,
@@ -198,11 +199,11 @@ class HDF5DataManager:
       else:
         obj_axis_global = self.dict_global_axes[axis_group][axis_name]
         obj_axis_global.add(axis_values)
-        if axis_units != axes_utils.AxisUnits.NOT_SPECIFIED.value: obj_axis_global.units = axis_units
+        if axis_units != axes_manager.AxisUnits.NOT_SPECIFIED.value: obj_axis_global.units = axis_units
         if len(axis_notes) > 0: obj_axis_global.notes = axis_notes
     if bool_init_dataset:
       ## initialise the dataset object
-      self.dict_datasets[dataset_group][dataset_name] = datasets_utils.DatasetObject(
+      self.dict_datasets[dataset_group][dataset_name] = datasets_manager.DatasetObject(
         group  = dataset_group,
         name   = dataset_name,
         values = dataset_values,
@@ -240,7 +241,7 @@ class HDF5DataManager:
       raise ValueError(f"Global axis '{axis_name}' not found in group '{axis_group}'.")
     obj_axis_global = self.dict_global_axes[axis_group][axis_name]
     if units is not None:
-      if not isinstance(units, (str, axes_utils.AxisUnits)):
+      if not isinstance(units, (str, axes_manager.AxisUnits)):
         raise TypeError("new_units must be either a string or an element of axes.AxisUnits.")
       obj_axis_global.units = units
     if notes is not None:
