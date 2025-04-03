@@ -32,10 +32,11 @@ class AxisObject:
     self.group  = group
     self.name   = name
     self.values = numpy.array(values)
-    ## local properties should be private
-    units = self._cast_unit(units)
+    ## store units + notes as strings
+    units = self.cast_units_to_string(units)
     if not isinstance(notes, str):
       raise TypeError("notes need to be a string")
+    ## local properties should be private
     self._units = units
     self._notes = notes
     self._global_ref = global_ref
@@ -48,7 +49,7 @@ class AxisObject:
 
   @units.setter
   def units(self, units):
-    units = self._cast_unit(units)
+    units = self.cast_units_to_string(units)
     if self._global_ref is not None:
       self._global_ref.units = units
     else: self._units = units
@@ -69,34 +70,22 @@ class AxisObject:
 
   @staticmethod
   def _validate_inputs(group, name, values, units, notes):
-    if not isinstance(group, str) or not group.strip():
-      raise ValueError("Axis group must be a non-empty string.")
-    if not isinstance(name, str) or not name.strip():
-      raise ValueError("Axis name must be a non-empty string.")
-    if not isinstance(values, (list, numpy.ndarray)):
-      raise TypeError("Axis values must be a list or numpy array.")
+    if not isinstance(group, str) or (group.strip() == ""): raise ValueError("Axis group must be a non-empty string.")
+    if not isinstance(name, str) or (name.strip() == ""): raise ValueError("Axis name must be a non-empty string.")
+    if not isinstance(values, (list, numpy.ndarray)): raise TypeError("Axis values must be a list or numpy array.")
     values = numpy.array(values)
-    if values.size == 0:
-      raise ValueError("Axis values cannot be empty.")
-    if values.ndim != 1:
-      raise ValueError("Axis values must be a 1D array.")
-    if not numpy.issubdtype(values.dtype, numpy.number):
-      raise TypeError("Axis values must be numeric (either integers or floats).")
-    if numpy.any(numpy.isnan(values)):
-      raise ValueError(f"Axis `{name}` contains NaN values.")
-    if not numpy.all(numpy.diff(values) >= 0):
-      raise ValueError("Axis values must be monotonically increasing.")
-    if len(values) != len(numpy.unique(values)):
-      raise ValueError("Axis values must be unique.")
-    if not isinstance(units, AxisUnits):
-      raise TypeError(f"Invalid unit: {units}. Must be a string or an element in AxisUnits.")
-    if not isinstance(notes, str):
-      raise TypeError("Notes must be a string.")
+    if values.size == 0: raise ValueError("Axis values cannot be empty.")
+    if values.ndim != 1: raise ValueError("Axis values must be a 1D array.")
+    if not numpy.issubdtype(values.dtype, numpy.number): raise TypeError("Axis values must be numeric (either integers or floats).")
+    if numpy.any(numpy.isnan(values)): raise ValueError(f"Axis `{name}` contains NaN values.")
+    if not numpy.all(numpy.diff(values) >= 0): raise ValueError("Axis values must be monotonically increasing.")
+    if len(values) != len(numpy.unique(values)): raise ValueError("Axis values must be unique.")
+    if not isinstance(units, AxisUnits): raise TypeError(f"Invalid axis unit: {units}. Must be an element from AxisUnits.")
+    if not isinstance(notes, str): raise TypeError("Notes must be a string.")
 
   @staticmethod
-  def _cast_unit(units):
-    if not isinstance(units, (str, AxisUnits)):
-      raise TypeError("units need to either be a string or an element of AxisUnits.")
+  def cast_units_to_string(units):
+    if not isinstance(units, (str, AxisUnits)): raise TypeError("Error: Provided `units` was neither a string or an element of AxisUnits.")
     if isinstance(units, AxisUnits): units = units.value
     return units
 
@@ -107,7 +96,7 @@ class AxisObject:
       notes = "",
     ):
     AxisObject._validate_inputs(group, name, values, units, notes)
-    units = AxisObject._cast_unit(units)
+    units = AxisObject.cast_units_to_string(units)
     return {
       "group"  : group,
       "name"   : name,

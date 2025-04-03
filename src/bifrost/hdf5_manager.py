@@ -46,7 +46,6 @@ class HDF5DataManager:
       raise ValueError(f"Invalid HDF5 file structure: {file_path}")
     obj_h5dm = cls() # initialise an instance of HDF5DataManager
     with h5py.File(file_path, "r") as h5_file:
-      ## Load global axes
       if "global_axes" in h5_file:
         for axis_group, h5_global_axes_group in h5_file["global_axes"].items():
           obj_h5dm.dict_global_axes[axis_group] = {}
@@ -64,17 +63,14 @@ class HDF5DataManager:
               tuple(dependency.split("/"))
               for dependency in json.loads(str_axis_dependencies)
             ]
-      ## Load datasets
       if "datasets" in h5_file:
         for dataset_group, h5_datasets in h5_file["datasets"].items():
           obj_h5dm.dict_datasets[dataset_group] = {}
           for dataset_name, h5_dataset in h5_datasets.items():
             if not isinstance(h5_dataset, h5py.Group): continue
-            ## Load dataset values and metadata
             dataset_values = numpy.array(h5_dataset["values"])
             dataset_units  = h5_dataset.attrs.get("units", "")
             dataset_notes  = h5_dataset.attrs.get("notes", "")
-            ## Load local axes
             list_axis_objs = []
             if "local_axes" in h5_dataset:
               h5_local_axes_group = h5_dataset["local_axes"]
@@ -83,9 +79,7 @@ class HDF5DataManager:
                 axis_group    = h5_local_axis.attrs["group"]
                 axis_name     = h5_local_axis.attrs["name"]
                 axis_values   = numpy.array(h5_local_axis["values"])
-                ## Retrieve global reference, if available
-                global_ref = obj_h5dm.dict_global_axes.get(axis_group, {}).get(axis_name, None)
-                ## Create local axis with global_ref
+                global_ref    = obj_h5dm.dict_global_axes.get(axis_group, {}).get(axis_name, None)
                 axis_obj = axes_manager.AxisObject(
                   group  = axis_group,
                   name   = axis_name,
@@ -95,7 +89,6 @@ class HDF5DataManager:
                   global_ref = global_ref, # set global reference
                 )
                 list_axis_objs.append(axis_obj)
-            ## Store dataset
             obj_h5dm.dict_datasets[dataset_group][dataset_name] = datasets_manager.DatasetObject(
               group  = dataset_group,
               name   = dataset_name,
@@ -108,7 +101,6 @@ class HDF5DataManager:
 
   def save_hdf5_file(self, file_path):
     with h5py.File(file_path, "w") as h5_file:
-      ## save global axes
       h5_global_axes = h5_file.create_group("global_axes")
       for axis_group, dict_axes_group in self.dict_global_axes.items():
         h5_global_axes_group = h5_global_axes.create_group(axis_group)
@@ -126,7 +118,6 @@ class HDF5DataManager:
               for dataset_group, dataset_name in self.dict_axis_dependencies[axis_id]
             ]
             h5_global_axis.attrs["dependencies"] = json.dumps(list_axis_dependencies) # store as JSON string
-      ## save datasets
       h5_datasets = h5_file.create_group("datasets")
       for dataset_group, datasets in self.dict_datasets.items():
         h5_datasets_group = h5_datasets.create_group(dataset_group)
@@ -149,12 +140,11 @@ class HDF5DataManager:
     dataset_id     = (dataset_group, dataset_name)
     dataset_values = dict_dataset.get("values")
     dataset_units  = dict_dataset.get("units")
-    if isinstance(dataset_units, datasets_manager.DatasetUnits): dataset_units = dataset_units.value
+    dataset_units  = datasets_manager.DatasetObject.cast_units_to_string(dataset_units)
     dataset_notes  = dict_dataset.get("notes")
     HDF5DataManager._validate_dimensions(dataset_values, list_axis_dicts)
     ## create the dataset group if it does not already exist
-    if dataset_group not in self.dict_datasets:
-      self.dict_datasets[dataset_group] = {}
+    if dataset_group not in self.dict_datasets: self.dict_datasets[dataset_group] = {}
     ## check whether the dataset needs to be initialised
     bool_init_dataset = dataset_name not in self.dict_datasets[dataset_group]
     ## if so, then axis objects will also need to be stored for initialisation
@@ -167,13 +157,11 @@ class HDF5DataManager:
       axis_id     = (axis_group, axis_name)
       axis_values = dict_axis.get("values")
       axis_units  = dict_axis.get("units")
-      if isinstance(axis_units, axes_manager.AxisUnits): axis_units = axis_units.value
+      axis_units  = axes_manager.AxisObject.cast_units_to_string(axis_units)
       axis_notes  = dict_axis.get("notes")
       ## make sure that the manager remembers that the dataset has a dependency on the axis
-      if axis_id not in self.dict_axis_dependencies:
-        self.dict_axis_dependencies[axis_id] = []
-      if dataset_id not in self.dict_axis_dependencies[axis_id]:
-        self.dict_axis_dependencies[axis_id].append(dataset_id)
+      if axis_id    not in self.dict_axis_dependencies:          self.dict_axis_dependencies[axis_id] = []
+      if dataset_id not in self.dict_axis_dependencies[axis_id]: self.dict_axis_dependencies[axis_id].append(dataset_id)
       ## store information relevant for initialising or updating (merging + reindexing) the dataset
       if bool_init_dataset:
         obj_axis_local = axes_manager.AxisObject(
@@ -186,8 +174,7 @@ class HDF5DataManager:
         list_axis_objs.append(obj_axis_local)
       else: list_axis_values.append(axis_values)
       ## create the global version of the dataset group if it does not already exist
-      if axis_group not in self.dict_global_axes:
-        self.dict_global_axes[axis_group] = {}
+      if axis_group not in self.dict_global_axes: self.dict_global_axes[axis_group] = {}
       ## initialise the global axis object if it does not already exist
       if axis_name not in self.dict_global_axes[axis_group]:
         ## use a copy of the local axis object
@@ -211,13 +198,9 @@ class HDF5DataManager:
         notes  = dataset_notes,
         list_axis_objs = list_axis_objs,
       )
-    else:
-      ## update the dataset shape and values
-      ## reindex using the input axis values to guide where `new` values should be inserted, or existing data should be overwritten
-      self.dict_datasets[dataset_group][dataset_name].add(
-        dataset_values_in   = dataset_values,
-        list_axis_values_in = list_axis_values,
-      )
+    ## update the dataset shape and values
+    ## reindex using the input axis values to guide where `new` values should be inserted, or existing data should be overwritten
+    else: self.dict_datasets[dataset_group][dataset_name].add(dataset_values_in=dataset_values, list_axis_values_in=list_axis_values)
 
   @staticmethod
   def _validate_dimensions(dataset_values, list_axis_dicts):
@@ -242,8 +225,8 @@ class HDF5DataManager:
     obj_axis_global = self.dict_global_axes[axis_group][axis_name]
     if units is not None:
       if not isinstance(units, (str, axes_manager.AxisUnits)):
-        raise TypeError("new_units must be either a string or an element of axes.AxisUnits.")
-      obj_axis_global.units = units
+        raise TypeError("Error: `new_units` was neither a string or an element from AxisUnits.")
+      obj_axis_global.units = axes_manager.AxisObject.cast_units_to_string(units)
     if notes is not None:
       if not isinstance(notes, str):
         raise TypeError("new_notes must be a string.")
