@@ -2,6 +2,9 @@ version = 1
 revision = 1
 requires-python = ">=3.11"
 
+[options]
+prerelease-mode = "allow"
+
 [[package]]
 name = "bifrost"
 version = "0.1.0"
