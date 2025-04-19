@@ -32,7 +32,6 @@ class AxisObject:
     self.group  = group
     self.name   = name
     self.values = numpy.array(values)
-    ## store units + notes as strings
     units = self.cast_units_to_string(units)
     if not isinstance(notes, str):
       raise TypeError("notes need to be a string")

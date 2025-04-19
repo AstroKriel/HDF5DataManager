@@ -107,7 +107,7 @@ class HDF5DataManager:
         for axis_name, obj_axis_global in dict_axes_group.items():
           ## store global axis values: super-set of all the values in the various instances of this axis
           h5_global_axis = h5_global_axes_group.create_dataset(axis_name, data=numpy.array(obj_axis_global.values))
-          units = axes_manager.AxisObject._cast_unit(obj_axis_global.units)
+          units = axes_manager.AxisObject.cast_units_to_string(obj_axis_global.units)
           h5_global_axis.attrs["units"] = units
           h5_global_axis.attrs["notes"] = obj_axis_global.notes
           ## store dataset dependencies: list of dataset paths that use this axis
@@ -124,7 +124,7 @@ class HDF5DataManager:
         for dataset_name, obj_dataset in datasets.items():
           h5_dataset = h5_datasets_group.create_group(dataset_name)
           h5_dataset.create_dataset("values", data=numpy.array(obj_dataset.values))
-          units = datasets_manager.DatasetObject._cast_unit(obj_dataset.units)
+          units = datasets_manager.DatasetObject.cast_units_to_string(obj_dataset.units)
           h5_dataset.attrs["units"] = units
           h5_dataset.attrs["notes"] = obj_dataset.notes
           h5_local_axes = h5_dataset.create_group("local_axes")

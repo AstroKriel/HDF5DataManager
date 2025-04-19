@@ -1,7 +1,7 @@
 [project]
 name = "bifrost"
 version = "0.1.0"
-description = "bifrost (hdf5 data manager) library"
+description = "bifrost: a hdf5 data manager"
 readme = "README.md"
 authors = [
     { name = "Neco Kriel", email = "necokriel@gmail.com" }
