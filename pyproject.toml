@@ -4,13 +4,21 @@ version = "0.1.0"
 description = "bifrost: a hdf5 data manager"
 readme = "README.md"
 authors = [
-    { name = "Neco Kriel", email = "necokriel@gmail.com" }
+  { name = "Neco Kriel", email = "necokriel@gmail.com" }
 ]
 requires-python = ">=3.11"
 dependencies = [
-    "h5py>=3.13.0",
+  "h5py>=3.13.0",
 ]
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.build]
+sources = ["src"]
+
+[tool.pyright]
+include = ["src", "tests"]
+reportMissingImports = true
+reportMissingTypeStubs = false
