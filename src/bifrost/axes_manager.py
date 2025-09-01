@@ -1,16 +1,18 @@
-## START OF MODULE
+## { MODULE
 
 
-## ###############################################################
-## DEPENDENCIES
-## ###############################################################
+##
+## === DEPENDENCIES ===
+##
+
 import numpy
 from enum import Enum
 
 
-## ###############################################################
-## RELEVANT UNITS FOR YOUR WORK
-## ###############################################################
+##
+## === RELEVANT UNITS FOR YOUR WORK ===
+##
+
 class AxisUnits(Enum):
   NOT_SPECIFIED = "not_specified"
   DIMENSIONLESS = "dimensionless"
@@ -18,9 +20,10 @@ class AxisUnits(Enum):
   K_TURB = "k_turb"
 
 
-## ###############################################################
-## AXIS MANAGER
-## ###############################################################
+##
+## === AXIS MANAGER ===
+##
+
 class AxisObject:
   def __init__(
       self,
@@ -129,4 +132,4 @@ class AxisObject:
     return False
 
 
-## END OF MODULE
+## } MODULE

@@ -1,9 +1,10 @@
-## START OF MODULE
+## { MODULE
 
 
-## ###############################################################
-## DEPENDENCIES
-## ###############################################################
+##
+## === DEPENDENCIES ===
+##
+
 import copy
 import h5py
 import json
@@ -13,9 +14,10 @@ from bifrost import axes_manager
 from bifrost import datasets_manager
 
 
-## ###############################################################
-## HDF5 DATA MANAGER
-## ###############################################################
+##
+## === HDF5 DATA MANAGER ===
+##
+
 class HDF5DataManager:
   def __init__(self):
     self.dict_global_axes = {} # { axes_group: { axis_name: axes.AxisObject, ... }, ... }
@@ -259,4 +261,4 @@ class HDF5DataManager:
     return obj_dataset_copy.get_dict()
 
 
-## END OF MODULE
+## } MODULE

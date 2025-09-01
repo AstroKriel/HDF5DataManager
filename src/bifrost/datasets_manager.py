@@ -1,24 +1,27 @@
-## START OF MODULE
+## { MODULE
 
 
-## ###############################################################
-## DEPENDENCIES
-## ###############################################################
+##
+## === DEPENDENCIES ===
+##
+
 import numpy
 from enum import Enum
 
 
-## ###############################################################
-## RELEVANT UNITS FOR YOUR WORK
-## ###############################################################
+##
+## === RELEVANT UNITS FOR YOUR WORK ===
+##
+
 class DatasetUnits(Enum):
   NOT_SPECIFIED = "not_specified"
   DIMENSIONLESS = "dimensionless"
 
 
-## ###############################################################
-## DATASET MANAGER
-## ###############################################################
+##
+## === DATASET MANAGER ===
+##
+
 class DatasetObject:
   def __init__(
       self,
@@ -135,4 +138,4 @@ class DatasetObject:
     self.values = dataset_values_updated
 
 
-## END OF MODULE
+## } MODULE
