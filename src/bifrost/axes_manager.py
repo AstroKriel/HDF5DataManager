@@ -100,7 +100,7 @@ class AxisObject:
     def cast_units_to_string(units):
         if not isinstance(units, (str, AxisUnits)):
             raise TypeError(
-                "Error: Provided `units` was neither a string or an element of AxisUnits."
+                "Error: Provided `units` was neither a string or an element of AxisUnits.",
             )
         if isinstance(units, AxisUnits): units = units.value
         return units
@@ -144,7 +144,7 @@ class AxisObject:
                     self.group == obj_axis.group,
                     self.name == obj_axis.name,
                     numpy.array_equal(self.values, obj_axis.values),
-                ]
+                ],
             )
             return bool_properties_are_the_same
         return False

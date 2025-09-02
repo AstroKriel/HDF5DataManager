@@ -62,7 +62,7 @@ class DatasetObject:
     def cast_units_to_string(units):
         if not isinstance(units, (str, DatasetUnits)):
             raise TypeError(
-                "Error: Provided `units` was neither a string or an element of DatasetUnits."
+                "Error: Provided `units` was neither a string or an element of DatasetUnits.",
             )
         if isinstance(units, DatasetUnits): units = units.value
         return units
@@ -106,7 +106,7 @@ class DatasetObject:
         num_dataset_dim = len(self.values.shape)
         if num_dataset_dim != num_axes_in:
             raise ValueError(
-                f"Error: The number of provided axis do not match the dimensions of the existing dataset (`{num_axes_in}` != `{num_dataset_dim}`)."
+                f"Error: The number of provided axis do not match the dimensions of the existing dataset (`{num_axes_in}` != `{num_dataset_dim}`).",
             )
         ## collect the stored axis values before updating
         list_axis_values_old = [
@@ -131,8 +131,7 @@ class DatasetObject:
         )
         dataset_values_updated = numpy.full(updated_dataset_shape, numpy.nan)
         dataset_indices_old = tuple(
-            numpy.searchsorted(obj_axis_updated.values, old_axis_values)
-            for obj_axis_updated, old_axis_values in zip(
+            numpy.searchsorted(obj_axis_updated.values, old_axis_values) for obj_axis_updated, old_axis_values in zip(
                 self.list_axis_objs,
                 list_axis_values_old,
             )
